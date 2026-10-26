@@ -9,7 +9,7 @@ APP="$PWD/build/DerivedData/Build/Products/$CONFIG/RDP Manager.app"
 
 [ -d RDPManager.xcodeproj ] || xcodegen generate
 xcodebuild -project RDPManager.xcodeproj -scheme RDPManager -configuration "$CONFIG" \
-  -derivedDataPath build/DerivedData build 2>&1 | grep -E "error:|BUILD" || true
+  -destination 'generic/platform=macOS' -derivedDataPath build/DerivedData build 2>&1 | grep -E "error:|BUILD" || true
 [ -d "$APP" ] || { echo "build failed" >&2; exit 1; }
 
 scripts/bundle-freerdp.sh "$APP" 2>&1 | grep -v "invalidate the code signature"

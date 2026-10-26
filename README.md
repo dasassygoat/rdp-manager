@@ -17,13 +17,45 @@ for the design decisions.
 
 ```bash
 brew install xcodegen freerdp
-xcodegen generate
-xcodebuild -project RDPManager.xcodeproj -scheme RDPManager -configuration Release -derivedDataPath build/DerivedData build
-scripts/bundle-freerdp.sh "build/DerivedData/Build/Products/Release/RDP Manager.app"
+scripts/run.sh
 ```
 
-The last step copies `sdl-freerdp` and its libraries into the app so it works on Macs
-without Homebrew. Then drag `RDP Manager.app` to `/Applications`.
+`scripts/run.sh` generates the Xcode project, builds a Debug app, copies `sdl-freerdp`
+and its libraries into the bundle (so it works on Macs without Homebrew), and launches it.
+
+## Install on another Mac
+
+```bash
+scripts/package.sh
+```
+
+This produces `dist/RDP-Manager-<version>.zip` with a universal (Apple Silicon and Intel)
+Release build. On the other Mac:
+
+1. Copy the zip over (AirDrop, a share, or a USB stick) and double-click it to unzip.
+2. Drag `RDP Manager.app` into `/Applications`.
+3. Open it once. Because the app is not notarized, macOS will refuse the first launch.
+   Go to System Settings → Privacy & Security, scroll to the message about RDP Manager,
+   and click **Open Anyway**. This is needed only once per Mac.
+
+   Alternatively, clear the quarantine flag from Terminal and it opens normally:
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/RDP Manager.app"
+   ```
+
+4. Allow notifications when asked, and install Windows App from the App Store if you
+   prefer it over the bundled FreeRDP.
+
+Notes:
+
+* The bundled FreeRDP is Apple Silicon only (it comes from Homebrew on the build Mac).
+  On an Intel Mac the app runs, but RDP needs Windows App.
+* Machine passwords live in each Mac's own Keychain and are not part of the zip or the
+  shared machine list. Enter them once per Mac.
+* To share one machine list, point every Mac at the same folder in Settings → Storage.
+* Signing with a Developer ID and notarizing would remove the first-launch warning.
+  That needs an Apple Developer account.
 
 ## Using it
 
