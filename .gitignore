@@ -1,0 +1,6 @@
+build/
+DerivedData/
+*.xcodeproj
+*.xcuserstate
+.DS_Store
+.brew-install.log
