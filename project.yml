@@ -87,6 +87,10 @@ targets:
         PRODUCT_NAME: rdpm
         PRODUCT_BUNDLE_IDENTIFIER: com.lanservices.rdpmanager.cli
         SWIFT_VERSION: "5.0"
+        # A command-line tool has no Info.plist of its own, so one is synthesised and
+        # embedded in the binary; that is where `rdpm version` reads the number from.
+        GENERATE_INFOPLIST_FILE: YES
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
   RDPManagerTests:
     type: bundle.unit-test
     platform: macOS

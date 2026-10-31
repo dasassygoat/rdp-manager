@@ -127,6 +127,9 @@ struct ConnectionSettings: View {
     /// Apps picked with Choose…, kept so the picker can show one that is not in the
     /// built-in list.
     @State private var extraTerminal: (name: String, bundleID: String)?
+    @State private var toolMessage: String?
+    /// Bumped after installing or removing so the status above is redrawn.
+    @State private var toolRefresh = 0
 
     var body: some View {
         Form {
@@ -170,6 +173,35 @@ struct ConnectionSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("Command line") {
+                LabeledContent("rdpm") {
+                    if CommandLineTool.isCurrent() {
+                        Label(CommandLineTool.defaultDestination.path, systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .lineLimit(1)
+                    } else if let installed = CommandLineTool.installedSource() {
+                        Label("another copy at \(installed.path)", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                            .lineLimit(2)
+                    } else {
+                        Label("Not installed", systemImage: "xmark.circle").foregroundStyle(.secondary)
+                    }
+                }
+                HStack {
+                    Button(CommandLineTool.isCurrent() ? "Reinstall" : "Install…") { installTool() }
+                        .disabled(CommandLineTool.bundledURL == nil)
+                    Button("Remove") { removeTool() }
+                        .disabled(CommandLineTool.installedSource() == nil)
+                    Spacer()
+                }
+                if let toolMessage {
+                    Text(toolMessage).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Starts sessions from a terminal: `rdpm ssh <name>`, `rdpm ip <name>`, "
+                     + "`rdpm list`. The binary lives in the app, so this is only a symlink.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Other protocols") {
                 LabeledContent("VNC", value: "macOS Screen Sharing")
                 LabeledContent("Web", value: "Default browser")
@@ -204,6 +236,28 @@ struct ConnectionSettings: View {
               !TerminalPreference.installed().contains(where: { $0.bundleID == sshTerminal }),
               let name = TerminalPreference.name(forBundleID: sshTerminal) else { return }
         extraTerminal = (name: name, bundleID: sshTerminal)
+    }
+
+    private func installTool() {
+        do {
+            let destination = try CommandLineTool.install()
+            toolMessage = "Installed at \(destination.path)."
+        } catch CommandLineTool.Failure.cancelled {
+            toolMessage = nil
+        } catch {
+            toolMessage = error.localizedDescription
+        }
+        toolRefresh += 1
+    }
+
+    private func removeTool() {
+        do {
+            try CommandLineTool.uninstall()
+            toolMessage = "Removed."
+        } catch {
+            toolMessage = error.localizedDescription
+        }
+        toolRefresh += 1
     }
 
     private func chooseTerminal() {

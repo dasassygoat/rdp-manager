@@ -42,6 +42,13 @@ The same script runs on every push and pull request via
 
 ## Command line
 
+In the app: **RDP Manager → Install Command Line Tool…**, or Settings → Connections →
+Command line, which also shows where it is installed and can remove it again. Either way
+it links `/usr/local/bin/rdpm`, asking for an administrator only if that folder is not
+already writable.
+
+From a checkout:
+
 ```bash
 scripts/install-cli.sh          # or: scripts/install-cli.sh ~/bin
 ```
@@ -60,6 +67,7 @@ rdpm ssh nas -- -A -L 8080:localhost:80   # anything after -- goes to ssh
 rdpm ip nas                     # 192.168.1.9
 rdpm list office                # filter by name, hostname, group or tag
 rdpm show nas                   # everything known, including IP history
+rdpm version                    # rdpm 0.2.0 (build 2)
 ssh "$(rdpm ip shop-pc)"        # compose it yourself
 ```
 
@@ -86,12 +94,8 @@ Release build. On the other Mac:
 3. Open it. A notarized build opens normally, with no Privacy & Security detour.
 4. Allow notifications when asked, and install Windows App from the App Store if you
    prefer it over the bundled FreeRDP.
-5. For the `rdpm` command, run `scripts/install-cli.sh` if you have the repo, or link it
-   by hand — the binary is already inside the app:
-
-   ```bash
-   sudo ln -sfn "/Applications/RDP Manager.app/Contents/Helpers/rdpm" /usr/local/bin/rdpm
-   ```
+5. For the `rdpm` command, use **RDP Manager → Install Command Line Tool…**. No
+   checkout and no build is needed: the binary is already inside the app.
 
 If the build was not notarized, macOS refuses the first launch instead: open System
 Settings → Privacy & Security, scroll to the message about RDP Manager and click

@@ -91,7 +91,14 @@ Machine
 `rdpm` is a second target in the same project, copied into
 `RDP Manager.app/Contents/Helpers/rdpm` by a post-build step so it is distributed,
 signed and notarized with the app rather than installed separately; `install-cli.sh`
-only symlinks it onto `PATH`. It shares `Machine` and `StoreLocation` with
+only symlinks it onto `PATH`. The app does the same from
+**Install Command Line Tool…** and from Settings, writing the symlink directly when the
+folder is writable and otherwise asking for an administrator through `osascript`, so no
+password reaches the app. Uninstalling only removes a link that points inside an
+`RDP Manager.app`, leaving an unrelated `rdpm` on the PATH alone.
+
+`rdpm version` reads an Info.plist embedded in the binary, carrying the same
+`MARKETING_VERSION` as the app, so the two cannot drift apart. It shares `Machine` and `StoreLocation` with
 the app, decodes `machines.json` directly, and never writes to it, so it cannot disturb the
 merge between Macs. `rdpm ssh <name>` builds the ssh arguments from the machine's username
 and port and then `execvp`s ssh, handing over the tty, signals and exit status rather than

@@ -25,6 +25,9 @@ struct RDPManagerApp: App {
                 Button("Refresh Status") { monitor.refreshNow() }
                     .keyboardShortcut("r", modifiers: .command)
             }
+            CommandGroup(after: .appInfo) {
+                Button("Install Command Line Tool…") { installCommandLineTool() }
+            }
         }
 
         Settings {
@@ -42,6 +45,28 @@ struct RDPManagerApp: App {
 
 extension Notification.Name {
     static let newMachineRequested = Notification.Name("newMachineRequested")
+}
+
+/// Links `rdpm` into /usr/local/bin and says what happened, since a menu item that reports
+/// nothing leaves no way to tell a success from a silent failure.
+@MainActor
+func installCommandLineTool() {
+    do {
+        let destination = try CommandLineTool.install()
+        let onPath = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":")
+            .contains(Substring(destination.deletingLastPathComponent().path))
+        AppAlerts.show(
+            "rdpm installed",
+            "\(destination.path) now points into RDP Manager.app, so replacing the app "
+            + "updates the command too.\n\nTry: rdpm list"
+            + (onPath ? "" : "\n\nNote: \(destination.deletingLastPathComponent().path) "
+               + "is not on this shell's PATH."))
+    } catch CommandLineTool.Failure.cancelled {
+        return
+    } catch {
+        AppAlerts.show("Could not install rdpm", error.localizedDescription)
+    }
 }
 
 @MainActor

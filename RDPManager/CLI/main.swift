@@ -14,6 +14,7 @@ commands:
   host <name>                print the address that would be connected to
   show <name>                print everything known about one machine
   list [pattern]             list machines, optionally filtered
+  version                    print the version
   help                       this text
 
 options:
@@ -33,6 +34,19 @@ examples:
   ssh "$(rdpm ip shop-pc)"
   rdpm list office
 """
+
+/// Read from the Info.plist embedded in the binary, which carries the same
+/// MARKETING_VERSION as the app.
+let versionText: String = {
+    let info = Bundle.main.infoDictionary
+    let short = info?["CFBundleShortVersionString"] as? String
+    let build = info?["CFBundleVersion"] as? String
+    switch (short, build) {
+    case let (version?, build?): return "rdpm \(version) (build \(build))"
+    case let (version?, nil): return "rdpm \(version)"
+    default: return "rdpm (version unknown)"
+    }
+}()
 
 // MARK: - Arguments
 
@@ -58,6 +72,9 @@ while index < arguments.count {
         wantsJSON = true
     case "-h", "--help":
         print(usage)
+        exit(0)
+    case "-v", "--version":
+        print(versionText)
         exit(0)
     case let other where other.hasPrefix("-"):
         usageError("unknown option \(other)")
@@ -93,6 +110,9 @@ do {
 switch command {
 case "help":
     print(usage)
+
+case "version":
+    print(versionText)
 
 case "list":
     let shown = listed(matching: name, in: machines)
