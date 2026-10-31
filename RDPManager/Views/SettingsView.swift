@@ -123,6 +123,10 @@ struct StorageSettings: View {
 
 struct ConnectionSettings: View {
     @AppStorage(RDPClientPreference.defaultsKey) private var rdpClient = RDPClientPreference.auto.rawValue
+    @AppStorage(TerminalPreference.defaultsKey) private var sshTerminal = ""
+    /// Apps picked with Choose…, kept so the picker can show one that is not in the
+    /// built-in list.
+    @State private var extraTerminal: (name: String, bundleID: String)?
 
     var body: some View {
         Form {
@@ -152,12 +156,67 @@ struct ConnectionSettings: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section("SSH") {
+                Picker("Open in", selection: $sshTerminal) {
+                    Text("System default").tag("")
+                    Divider()
+                    ForEach(terminalChoices, id: \.bundleID) { Text($0.name).tag($0.bundleID) }
+                }
+                HStack {
+                    Button("Choose…") { chooseTerminal() }
+                    Spacer()
+                }
+                Text(sshHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Other protocols") {
                 LabeledContent("VNC", value: "macOS Screen Sharing")
-                LabeledContent("SSH", value: "Terminal")
                 LabeledContent("Web", value: "Default browser")
             }
         }
         .formStyle(.grouped)
+        .onAppear(perform: rememberSelectionIfUnlisted)
+    }
+
+    private var terminalChoices: [(name: String, bundleID: String)] {
+        var choices = TerminalPreference.installed()
+        if let extra = extraTerminal, !choices.contains(where: { $0.bundleID == extra.bundleID }) {
+            choices.append(extra)
+        }
+        return choices
+    }
+
+    private var sshHelp: String {
+        if sshTerminal.isEmpty {
+            return "Opens ssh:// and lets macOS pick the app, which is Terminal unless you "
+                + "changed it. Most terminals, Warp among them, never register for ssh:// and "
+                + "so cannot be chosen this way."
+        }
+        let name = TerminalPreference.name(forBundleID: sshTerminal) ?? "That app"
+        return "\(name) is handed a small script that runs the ssh command. The password from "
+            + "the Keychain is not used: ssh asks for it, or you connect with a key."
+    }
+
+    /// A terminal chosen earlier may not be in the built-in list, so keep it selectable.
+    private func rememberSelectionIfUnlisted() {
+        guard !sshTerminal.isEmpty,
+              !TerminalPreference.installed().contains(where: { $0.bundleID == sshTerminal }),
+              let name = TerminalPreference.name(forBundleID: sshTerminal) else { return }
+        extraTerminal = (name: name, bundleID: sshTerminal)
+    }
+
+    private func chooseTerminal() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.prompt = "Use Terminal"
+        panel.message = "Choose the app that should open SSH sessions"
+        guard panel.runModal() == .OK, let app = panel.url,
+              let id = Bundle(url: app)?.bundleIdentifier else { return }
+        extraTerminal = (name: FileManager.default.displayName(atPath: app.path), bundleID: id)
+        sshTerminal = id
     }
 }

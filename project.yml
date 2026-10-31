@@ -57,8 +57,7 @@ targets:
       - path: Tests
       - path: RDPManager/Models
       - path: RDPManager/Store
-      - path: RDPManager/Services/FileWatcher.swift
-      - path: RDPManager/Services/Keychain.swift
+      - path: RDPManager/Services
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lanservices.rdpmanager.tests

@@ -47,6 +47,7 @@ extension Notification.Name {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        TerminalPreference.registerDefaults()
         if Bundle.main.bundleIdentifier != nil {
             UNUserNotificationCenter.current().delegate = self
             Notifier.shared.requestAuthorization()

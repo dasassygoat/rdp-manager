@@ -24,11 +24,21 @@ and connect with one click over RDP, VNC, SSH, or a web admin page.
 | RDP via Windows App | App writes a temporary `.rdp` file (full address, username, display options) and opens it with Windows App. Windows App prompts for the password once and can remember it. |
 | RDP via FreeRDP | `xfreerdp /v:host /u:user /p:password` with the password pulled from the Keychain. Fully unattended. |
 | VNC | Opens `vnc://user:password@host` which launches the built-in Screen Sharing app. |
-| SSH | Opens `ssh://user@host`, which macOS hands to Terminal. |
+| SSH | Writes a `.command` script holding the `ssh` command and opens it with the terminal chosen in Settings, which defaults to Warp when installed. With System default chosen, or no terminal found, opens `ssh://user@host` and lets macOS pick the app. |
 | Web | Opens the stored URL (defaults to `https://<ip>`). |
 
 The per-machine "primary" connection type is what a single click on the name runs.
 Other types are available from a context menu.
+
+A terminal cannot be reached through `ssh://` unless it registers for that scheme, and most
+(Warp included) register only their own. What they do declare is a document type with the
+`Shell` role, meaning they run a script handed to them rather than display it. So choosing a
+terminal writes `~/Library/Application Support/RDP Manager/ssh/<machine>.command` and opens
+it with that app. Warp is the registered default when installed, so the picker and the
+launch path agree without anything being written to the user's preferences until they
+choose for themselves. The app refuses to use an app that does not declare the role, which would
+otherwise show the script in an editor. The Keychain password is deliberately not written
+into the script: `ssh` prompts, or the user connects with a key.
 
 ## IP tracking
 

@@ -87,6 +87,10 @@ Notes:
 * **Share the list** from Settings → Storage by pointing the app at a folder on a network
   share or in iCloud Drive. Other Macs running the app pick up changes within seconds.
   Passwords are never written to that file.
+* **SSH terminal** is chosen in Settings → Connections. Warp is used when it is installed,
+  otherwise `ssh://` goes to macOS, which means Terminal. Pick iTerm, Ghostty or any other
+  terminal to override it, **Choose…** an app that is not listed, or pick System default to
+  hand `ssh://` back to macOS.
 * **Menu bar** item lists every machine for quick connections while the window is closed.
 
 ## Layout

@@ -16,6 +16,67 @@ enum RDPClientPreference: String, CaseIterable, Identifiable {
     }
 }
 
+/// Which app opens an SSH session. An empty selection means the system handler for
+/// `ssh://`, which is Terminal unless the user changed it.
+///
+/// Terminals cannot be reached through `ssh://` unless they register for that scheme, and
+/// most (Warp included) register only their own. What they do declare is a document type
+/// with the `Shell` role, meaning they run a script rather than display it, so a chosen
+/// terminal is handed a small `.command` file instead.
+enum TerminalPreference {
+    static let defaultsKey = "sshTerminalBundleID"
+
+    /// Offered in Settings when installed. Any other app can be picked by hand.
+    static let known: [(name: String, bundleID: String)] = [
+        ("Terminal", "com.apple.Terminal"),
+        ("Warp", "dev.warp.Warp-Stable"),
+        ("iTerm", "com.googlecode.iterm2"),
+        ("Ghostty", "com.mitchellh.ghostty"),
+        ("kitty", "net.kovidgoyal.kitty"),
+        ("WezTerm", "com.github.wez.wezterm"),
+        ("Alacritty", "org.alacritty"),
+        ("Hyper", "co.zeit.hyper"),
+    ]
+
+    /// Preferred out of the box when installed. Registering it (rather than reading it as a
+    /// fallback) keeps the Settings picker and the launch path showing the same thing, and
+    /// an explicit choice in Settings still wins.
+    static let preferredBundleID = "dev.warp.Warp-Stable"
+
+    static func registerDefaults() {
+        let fallback = url(forBundleID: preferredBundleID) != nil ? preferredBundleID : ""
+        UserDefaults.standard.register(defaults: [defaultsKey: fallback])
+    }
+
+    static var selectedBundleID: String {
+        UserDefaults.standard.string(forKey: defaultsKey) ?? ""
+    }
+
+    static func url(forBundleID id: String) -> URL? {
+        guard !id.isEmpty else { return nil }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
+    }
+
+    /// The installed entries of `known`, for the Settings picker.
+    static func installed() -> [(name: String, bundleID: String)] {
+        known.filter { url(forBundleID: $0.bundleID) != nil }
+    }
+
+    static func name(forBundleID id: String) -> String? {
+        if let known = known.first(where: { $0.bundleID == id }) { return known.name }
+        guard let url = url(forBundleID: id) else { return nil }
+        return FileManager.default.displayName(atPath: url.path)
+    }
+
+    /// True when the app declares a document type it runs rather than opens for editing.
+    /// Without this a `.command` file would be shown in a text editor, not executed.
+    static func runsShellScripts(at url: URL) -> Bool {
+        guard let types = Bundle(url: url)?.infoDictionary?["CFBundleDocumentTypes"]
+                as? [[String: Any]] else { return false }
+        return types.contains { ($0["CFBundleTypeRole"] as? String) == "Shell" }
+    }
+}
+
 enum LaunchError: LocalizedError {
     case noClient(String)
     case badAddress
@@ -96,11 +157,16 @@ enum Launcher {
     private static let missingFreeRDP =
         "FreeRDP was not found in the app bundle or at /opt/homebrew/bin/sdl-freerdp (install with: brew install freerdp)."
 
+    /// Machine names become filenames, so anything that is not a letter, digit, dash or
+    /// underscore is replaced.
+    static func safeFileName(_ name: String) -> String {
+        String(name.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "_" })
+    }
+
     static func rdpFileURL(for machine: Machine) -> URL {
-        let safe = machine.name.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "_" }
-        return MachineStore.defaultDirectory
+        MachineStore.defaultDirectory
             .appendingPathComponent("rdp", isDirectory: true)
-            .appendingPathComponent(String(safe) + ".rdp")
+            .appendingPathComponent(safeFileName(machine.name) + ".rdp")
     }
 
     private static func rdpViaWindowsApp(_ machine: Machine, app: URL) throws {
@@ -173,6 +239,23 @@ enum Launcher {
     }
 
     static func ssh(_ machine: Machine) throws {
+        let id = TerminalPreference.selectedBundleID
+        guard !id.isEmpty else { return try sshViaURLScheme(machine) }
+        guard let app = TerminalPreference.url(forBundleID: id) else {
+            throw LaunchError.noClient(
+                "The terminal chosen in Settings → Connections is no longer installed. "
+                + "Pick another one, or choose the system default.")
+        }
+        guard TerminalPreference.runsShellScripts(at: app) else {
+            let name = TerminalPreference.name(forBundleID: id) ?? app.lastPathComponent
+            throw LaunchError.noClient(
+                "\(name) does not run shell scripts, so it cannot be handed an SSH command. "
+                + "Choose a different terminal in Settings → Connections.")
+        }
+        try sshViaTerminalApp(machine, app: app)
+    }
+
+    private static func sshViaURLScheme(_ machine: Machine) throws {
         var components = URLComponents()
         components.scheme = "ssh"
         components.host = machine.connectHost
@@ -180,6 +263,61 @@ enum Launcher {
         if !machine.username.isEmpty { components.user = machine.username }
         guard let url = components.url else { throw LaunchError.badAddress }
         NSWorkspace.shared.open(url)
+    }
+
+    static func sshScriptURL(for machine: Machine) -> URL {
+        MachineStore.defaultDirectory
+            .appendingPathComponent("ssh", isDirectory: true)
+            .appendingPathComponent(safeFileName(machine.name) + ".command")
+    }
+
+    /// Single-quoted for the shell, so a hostname or username with surprising characters
+    /// cannot run as part of the command.
+    static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    static func sshCommand(for machine: Machine) -> String {
+        let target = machine.username.isEmpty
+            ? machine.connectHost
+            : "\(machine.username)@\(machine.connectHost)"
+        var command = "exec ssh"
+        if machine.sshPort != 22 { command += " -p \(machine.sshPort)" }
+        return command + " " + shellQuoted(target)
+    }
+
+    static func sshScript(for machine: Machine) -> String {
+        """
+        #!/bin/bash
+        # Written by RDP Manager so your chosen terminal opens this SSH session.
+        # Rewritten on every connection; safe to delete.
+        \(sshCommand(for: machine))
+        """ + "\n"
+    }
+
+    /// Terminals that declare the `Shell` document role run an executable script handed to
+    /// them, which is how an SSH session lands in a specific terminal rather than whichever
+    /// app happens to own `ssh://`.
+    private static func sshViaTerminalApp(_ machine: Machine, app: URL) throws {
+        let file = sshScriptURL(for: machine)
+        do {
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try sshScript(for: machine).write(to: file, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700], ofItemAtPath: file.path)
+        } catch {
+            throw LaunchError.failed("Could not write the SSH command: \(error.localizedDescription)")
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.open([file], withApplicationAt: app, configuration: configuration) { _, error in
+            if let error {
+                Task { @MainActor in
+                    AppAlerts.show("Could not open \(app.lastPathComponent)", error.localizedDescription)
+                }
+            }
+        }
     }
 
     static func web(_ machine: Machine) throws {
