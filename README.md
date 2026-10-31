@@ -78,18 +78,14 @@ Release build. On the other Mac:
 
 1. Copy the zip over (AirDrop, a share, or a USB stick) and double-click it to unzip.
 2. Drag `RDP Manager.app` into `/Applications`.
-3. Open it once. Because the app is not notarized, macOS will refuse the first launch.
-   Go to System Settings → Privacy & Security, scroll to the message about RDP Manager,
-   and click **Open Anyway**. This is needed only once per Mac.
-
-   Alternatively, clear the quarantine flag from Terminal and it opens normally:
-
-   ```bash
-   xattr -dr com.apple.quarantine "/Applications/RDP Manager.app"
-   ```
-
+3. Open it. A notarized build opens normally, with no Privacy & Security detour.
 4. Allow notifications when asked, and install Windows App from the App Store if you
    prefer it over the bundled FreeRDP.
+
+If the build was not notarized, macOS refuses the first launch instead: open System
+Settings → Privacy & Security, scroll to the message about RDP Manager and click
+**Open Anyway**, or clear the quarantine flag with
+`xattr -dr com.apple.quarantine "/Applications/RDP Manager.app"`.
 
 Notes:
 
@@ -98,8 +94,30 @@ Notes:
 * Machine passwords live in each Mac's own Keychain and are not part of the zip or the
   shared machine list. Enter them once per Mac.
 * To share one machine list, point every Mac at the same folder in Settings → Storage.
-* Signing with a Developer ID and notarizing would remove the first-launch warning.
-  That needs an Apple Developer account.
+
+### Signing and notarization
+
+`package.sh` signs the app, the bundled FreeRDP and `rdpm` with the Developer ID
+certificate it finds in the Keychain, with the hardened runtime and a secure timestamp,
+then checks both before going further. Debug builds stay ad-hoc signed, so building and
+testing needs no certificate and CI keeps working.
+
+Notarization needs a credential profile, stored once per Mac. It takes an
+**app-specific password** from [appleid.apple.com](https://appleid.apple.com), not the
+Apple ID password:
+
+```bash
+xcrun notarytool store-credentials notarytool \
+  --apple-id you@example.com --team-id YOURTEAMID
+```
+
+With that in place `package.sh` submits the zip, waits for the result, staples the ticket
+to the app and zips it again, so the app validates on first launch without a network
+round trip. Without it the app is still signed and the script says what to run, which is
+the only difference between a build that opens cleanly and one that needs **Open Anyway**.
+
+Useful overrides: `SIGN_IDENTITY` to choose a different certificate, `NOTARY_PROFILE` for
+another profile name, `SKIP_NOTARIZE=1` to sign without submitting.
 
 ## Using it
 

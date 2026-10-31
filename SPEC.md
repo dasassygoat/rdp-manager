@@ -106,6 +106,19 @@ bundle), then the default location.
 * Multiple sites with separate DNS.
 * App Store sandboxing (the app launches other apps and `ping`, so it runs unsandboxed).
 
+## Distribution
+
+* Release builds are signed with a Developer ID Application certificate, with the hardened
+  runtime and a secure timestamp, which is what notarization requires. The bundled FreeRDP
+  dylibs are signed with the same identity: `sdl-freerdp` runs under the hardened runtime,
+  and library validation only loads dylibs from its own team.
+* Inner code is signed before the outer bundle rather than with `codesign --deep`, and the
+  app is signed again after the helpers are copied in, since that invalidates the signature
+  `xcodebuild` applied.
+* Debug builds stay ad-hoc signed so building and testing needs no certificate.
+* `package.sh` notarizes and staples when a `notarytool` credential profile exists, and
+  otherwise says how to create one.
+
 ## Build
 
 * Xcode project generated with `xcodegen` from `project.yml`.

@@ -10,12 +10,22 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: 0.2.0
     CURRENT_PROJECT_VERSION: 2
-    CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Manual
-    DEVELOPMENT_TEAM: ""
-    ENABLE_HARDENED_RUNTIME: false
     ARCHS: "arm64 x86_64"
     ONLY_ACTIVE_ARCH: NO
+  configs:
+    # Debug stays ad-hoc signed so a build needs no certificate: that is what CI runs.
+    Debug:
+      CODE_SIGN_IDENTITY: "-"
+      DEVELOPMENT_TEAM: ""
+      ENABLE_HARDENED_RUNTIME: false
+    # Release is what gets distributed, so it is signed with the Developer ID and gets the
+    # hardened runtime and a secure timestamp, both of which notarization requires.
+    Release:
+      CODE_SIGN_IDENTITY: "Developer ID Application"
+      DEVELOPMENT_TEAM: LT92GD6MBZ
+      ENABLE_HARDENED_RUNTIME: true
+      OTHER_CODE_SIGN_FLAGS: "--timestamp"
 targets:
   RDPManager:
     type: application
@@ -60,7 +70,6 @@ targets:
         PRODUCT_NAME: rdpm
         PRODUCT_BUNDLE_IDENTIFIER: com.lanservices.rdpmanager.cli
         SWIFT_VERSION: "5.0"
-        CODE_SIGN_IDENTITY: "-"
   RDPManagerTests:
     type: bundle.unit-test
     platform: macOS

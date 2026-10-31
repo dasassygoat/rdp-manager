@@ -3,10 +3,13 @@
 # rewrites the install names so the copy runs without Homebrew present.
 # Works with the bash 3.2 that ships with macOS.
 #
-# Usage: scripts/bundle-freerdp.sh "/path/to/RDP Manager.app"
+# Usage: scripts/bundle-freerdp.sh "/path/to/RDP Manager.app" [signing identity]
+# The identity defaults to ad-hoc ("-"). package.sh passes a Developer ID so the copies can
+# be notarized: library validation only lets sdl-freerdp load dylibs from its own team.
 set -euo pipefail
 
-APP="${1:?usage: $0 /path/to/RDP\ Manager.app}"
+APP="${1:?usage: $0 /path/to/RDP\ Manager.app [identity]}"
+IDENTITY="${2:--}"
 SRC="$(brew --prefix)/bin/sdl-freerdp"
 DEST="$APP/Contents/Helpers/freerdp"
 BIN="$DEST/bin"
@@ -52,9 +55,17 @@ for f in "$LIB"/*.dylib; do
   install_name_tool -id "@loader_path/$(basename "$f")" "$f"
 done
 
-# Ad-hoc sign everything we touched so macOS will load it.
+# Sign everything we touched, innermost first, so macOS will load it. install_name_tool
+# invalidated whatever signature the Homebrew copies arrived with.
+SIGN_FLAGS=(--force --sign "$IDENTITY")
+if [ "$IDENTITY" != "-" ]; then
+  # A real identity means this is headed for notarization, which wants the hardened runtime
+  # and a timestamp on every executable in the bundle.
+  SIGN_FLAGS+=(--options runtime --timestamp)
+fi
 for f in "$LIB"/*.dylib "$BIN/sdl-freerdp"; do
-  codesign --force --sign - "$f" >/dev/null 2>&1
+  codesign "${SIGN_FLAGS[@]}" "$f" >/dev/null 2>&1 \
+    || { echo "could not sign $f with identity '$IDENTITY'" >&2; exit 1; }
 done
 
 echo "Bundled sdl-freerdp with $(ls "$LIB" | wc -l | tr -d ' ') libraries into $DEST"
