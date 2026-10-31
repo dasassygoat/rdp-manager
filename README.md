@@ -1,5 +1,7 @@
 # RDP Manager
 
+[![Tests](https://github.com/dasassygoat/rdp-manager/actions/workflows/tests.yml/badge.svg)](https://github.com/dasassygoat/rdp-manager/actions/workflows/tests.yml)
+
 A macOS utility for the computers on your local network. Add machines by name, and the
 app keeps track of their IP addresses as they change, shows whether each is online, and
 connects with one click over RDP, VNC, SSH, or a web admin page. See [SPEC.md](SPEC.md)
@@ -22,6 +24,21 @@ scripts/run.sh
 
 `scripts/run.sh` generates the Xcode project, builds a Debug app, copies `sdl-freerdp`
 and its libraries into the bundle (so it works on Macs without Homebrew), and launches it.
+
+## Test
+
+```bash
+scripts/test.sh
+```
+
+Unit tests cover the shared store: the last-writer-wins merge that runs when another Mac
+writes the file, IP history recording and its 200-entry cap, and the atomic saves that keep
+a reader on a share from ever seeing a half-written list. `scripts/test.sh -v` prints the
+whole log. The tests compile the store and model straight into the test bundle, so they run
+without launching the app.
+
+The same script runs on every push and pull request via
+[.github/workflows/tests.yml](.github/workflows/tests.yml) on a macOS runner.
 
 ## Install on another Mac
 
@@ -81,6 +98,7 @@ RDPManager/
   Store/      JSON persistence, file watching, cross-Mac merge
   Services/   resolver, prober, monitor, Keychain, Wake-on-LAN, launcher, notifications
   Views/      SwiftUI windows, sheets, settings, menu bar
-scripts/      bundle-freerdp.sh
+Tests/        unit tests for the store (merge, IP history, atomic writes)
+scripts/      run.sh, test.sh, package.sh, bundle-freerdp.sh, make-icon.sh
 project.yml   xcodegen project definition
 ```

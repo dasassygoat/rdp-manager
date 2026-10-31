@@ -47,3 +47,27 @@ targets:
         GENERATE_INFOPLIST_FILE: false
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  RDPManagerTests:
+    type: bundle.unit-test
+    platform: macOS
+    # The files under test are compiled straight into the bundle rather than loaded from
+    # the app: the tests then run without launching RDP Manager, which would start its
+    # pollers and ask for notification permission.
+    sources:
+      - path: Tests
+      - path: RDPManager/Models
+      - path: RDPManager/Store
+      - path: RDPManager/Services/FileWatcher.swift
+      - path: RDPManager/Services/Keychain.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lanservices.rdpmanager.tests
+        GENERATE_INFOPLIST_FILE: true
+schemes:
+  RDPManager:
+    build:
+      targets:
+        RDPManager: all
+    test:
+      targets:
+        - RDPManagerTests

@@ -37,14 +37,18 @@ final class MachineStore: ObservableObject {
         return d
     }()
 
-    init() {
-        if let saved = UserDefaults.standard.string(forKey: Self.pathKey), !saved.isEmpty {
-            storeURL = URL(fileURLWithPath: saved)
+    /// `storeURL` overrides the saved location and `watchForChanges` disables the file
+    /// watcher and reload timer; both are for tests, which bind a store to a temp file.
+    init(storeURL: URL? = nil, watchForChanges: Bool = true) {
+        if let storeURL {
+            self.storeURL = storeURL
+        } else if let saved = UserDefaults.standard.string(forKey: Self.pathKey), !saved.isEmpty {
+            self.storeURL = URL(fileURLWithPath: saved)
         } else {
-            storeURL = Self.defaultStoreURL
+            self.storeURL = Self.defaultStoreURL
         }
         load()
-        startWatching()
+        if watchForChanges { startWatching() }
     }
 
     // MARK: - Lookup
@@ -198,9 +202,10 @@ final class MachineStore: ObservableObject {
         }
 
         let keptLocalChanges = merged != incoming
+        let mergedIDs = Set(merged.map(\.id))
         machines = merged
         sortMachines()
-        for id in statuses.keys where !incomingIDs.contains(id) && local[id] == nil {
+        for id in statuses.keys where !mergedIDs.contains(id) {
             statuses[id] = nil
         }
         if keptLocalChanges { save() }

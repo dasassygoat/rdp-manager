@@ -1,0 +1,28 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Report toolchain
+        run: |
+          xcodebuild -version
+          xcodegen --version
+
+      # Generates RDPManager.xcodeproj (it is not in the repo), builds the app and the
+      # test bundle, and runs the store tests. FreeRDP is not needed: it is bundled into
+      # the app by scripts/package.sh, not by the build.
+      - name: Run tests
+        run: scripts/test.sh
