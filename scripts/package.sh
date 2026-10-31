@@ -50,13 +50,17 @@ SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
 if [ "$SIGN_IDENTITY" != "-" ]; then
   SIGN_FLAGS+=(--options runtime --timestamp)
 fi
+# rdpm is a second executable in the bundle, so it needs the same treatment as the FreeRDP
+# helper: notarization rejects any executable without the hardened runtime.
+codesign "${SIGN_FLAGS[@]}" "$APP/Contents/Helpers/rdpm"
 codesign "${SIGN_FLAGS[@]}" --entitlements "$ENTITLEMENTS" "$APP"
 
 codesign --verify --deep --strict --verbose=2 "$APP"
 if [ "$SIGN_IDENTITY" != "-" ]; then
   # Captured rather than piped into `grep -q`: that quits on the first match, which
   # SIGPIPEs codesign, and pipefail then fails the pipeline even though it matched.
-  for binary in "$APP" "$APP/Contents/Helpers/freerdp/bin/sdl-freerdp"; do
+  for binary in "$APP" "$APP/Contents/Helpers/freerdp/bin/sdl-freerdp" \
+                "$APP/Contents/Helpers/rdpm"; do
     DESCRIPTION="$(codesign -d --verbose=4 "$binary" 2>&1 || true)"
     case "$DESCRIPTION" in
       *"(runtime)"*) ;;

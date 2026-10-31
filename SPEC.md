@@ -88,7 +88,10 @@ Machine
 
 ## Command line
 
-`rdpm` is a second target in the same project. It shares `Machine` and `StoreLocation` with
+`rdpm` is a second target in the same project, copied into
+`RDP Manager.app/Contents/Helpers/rdpm` by a post-build step so it is distributed,
+signed and notarized with the app rather than installed separately; `install-cli.sh`
+only symlinks it onto `PATH`. It shares `Machine` and `StoreLocation` with
 the app, decodes `machines.json` directly, and never writes to it, so it cannot disturb the
 merge between Macs. `rdpm ssh <name>` builds the ssh arguments from the machine's username
 and port and then `execvp`s ssh, handing over the tty, signals and exit status rather than

@@ -51,6 +51,23 @@ targets:
       path: RDPManager/RDPManager.entitlements
       properties:
         com.apple.security.app-sandbox: false
+    # rdpm rides inside the bundle, so copying the app to another Mac brings the command
+    # with it and install-cli.sh only has to make a symlink.
+    dependencies:
+      - target: rdpm
+        embed: false
+    postBuildScripts:
+      - name: Embed rdpm in Helpers
+        basedOnDependencyAnalysis: true
+        inputFiles:
+          - "$(TARGET_BUILD_DIR)/rdpm"
+        outputFiles:
+          - "$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/rdpm"
+        script: |
+          set -euo pipefail
+          HELPERS="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
+          mkdir -p "$HELPERS"
+          cp -f "$TARGET_BUILD_DIR/rdpm" "$HELPERS/rdpm"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lanservices.rdpmanager

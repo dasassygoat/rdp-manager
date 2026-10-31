@@ -46,6 +46,11 @@ The same script runs on every push and pull request via
 scripts/install-cli.sh          # or: scripts/install-cli.sh ~/bin
 ```
 
+`rdpm` ships inside `RDP Manager.app`, so it travels with the app and needs no separate
+build. The script links `/usr/local/bin/rdpm` to the copy in the bundle, which means
+replacing the app updates the command too. On a Mac that has the app installed this is all
+it does; it only builds if no app can be found.
+
 `rdpm` starts sessions from the same machine list the app keeps, so an address the app
 recorded seconds ago is the one it uses. It only reads the file.
 
@@ -81,6 +86,12 @@ Release build. On the other Mac:
 3. Open it. A notarized build opens normally, with no Privacy & Security detour.
 4. Allow notifications when asked, and install Windows App from the App Store if you
    prefer it over the bundled FreeRDP.
+5. For the `rdpm` command, run `scripts/install-cli.sh` if you have the repo, or link it
+   by hand — the binary is already inside the app:
+
+   ```bash
+   sudo ln -sfn "/Applications/RDP Manager.app/Contents/Helpers/rdpm" /usr/local/bin/rdpm
+   ```
 
 If the build was not notarized, macOS refuses the first launch instead: open System
 Settings → Privacy & Security, scroll to the message about RDP Manager and click
@@ -147,7 +158,7 @@ RDPManager/
   Store/      JSON persistence, file watching, cross-Mac merge
   Services/   resolver, prober, monitor, Keychain, Wake-on-LAN, launcher, notifications
   Views/      SwiftUI windows, sheets, settings, menu bar
-  CLI/        rdpm, the command-line companion
+  CLI/        rdpm, the command-line companion (embedded in the app bundle at build time)
 Tests/        unit tests for the store, SSH launching and the CLI's machine lookup
 scripts/      run.sh, test.sh, install-cli.sh, package.sh, bundle-freerdp.sh, make-icon.sh
 project.yml   xcodegen project definition
