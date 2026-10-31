@@ -67,7 +67,7 @@ rdpm ssh nas -- -A -L 8080:localhost:80   # anything after -- goes to ssh
 rdpm ip nas                     # 192.168.1.9
 rdpm list office                # filter by name, hostname, group or tag
 rdpm show nas                   # everything known, including IP history
-rdpm version                    # rdpm 0.2.0 (build 2)
+rdpm version                    # the version of the app it came from
 ssh "$(rdpm ip shop-pc)"        # compose it yourself
 ```
 
