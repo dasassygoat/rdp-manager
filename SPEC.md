@@ -86,6 +86,20 @@ Machine
   enough for a handful of admins.
 * Export / import of the same JSON for backup.
 
+## Command line
+
+`rdpm` is a second target in the same project. It shares `Machine` and `StoreLocation` with
+the app, decodes `machines.json` directly, and never writes to it, so it cannot disturb the
+merge between Macs. `rdpm ssh <name>` builds the ssh arguments from the machine's username
+and port and then `execvp`s ssh, handing over the tty, signals and exit status rather than
+wrapping them.
+
+Name resolution widens only when a narrower match misses: exact name, exact hostname, name
+prefix, hostname prefix, name substring. Several matches with no exact one is an error, not
+a guess. The file is found from `--store`, then `$RDP_MANAGER_STORE`, then the app's own
+`storeFilePath` preference (read from the app's domain, since the command runs outside the
+bundle), then the default location.
+
 ## Not in v1
 
 * Subnet scanning / MAC-based tracking.

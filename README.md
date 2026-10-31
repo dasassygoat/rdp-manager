@@ -40,6 +40,33 @@ without launching the app.
 The same script runs on every push and pull request via
 [.github/workflows/tests.yml](.github/workflows/tests.yml) on a macOS runner.
 
+## Command line
+
+```bash
+scripts/install-cli.sh          # or: scripts/install-cli.sh ~/bin
+```
+
+`rdpm` starts sessions from the same machine list the app keeps, so an address the app
+recorded seconds ago is the one it uses. It only reads the file.
+
+```bash
+rdpm ssh nas                    # connect, in the terminal you are already in
+rdpm ssh nas -- -A -L 8080:localhost:80   # anything after -- goes to ssh
+rdpm ip nas                     # 192.168.1.9
+rdpm list office                # filter by name, hostname, group or tag
+rdpm show nas                   # everything known, including IP history
+ssh "$(rdpm ip shop-pc)"        # compose it yourself
+```
+
+A name matches exactly first, then by hostname, then by prefix, then by substring, so `nas`
+still means `nas` when `nas-backup` exists. Two matches and no exact one is an error rather
+than a guess, because guessing opens a session on the wrong machine.
+
+It reads `--store <path>`, else `$RDP_MANAGER_STORE`, else the folder set in the app's
+Settings, else the default location. Exit status is 0 fine, 1 no such machine or unreadable
+list, 2 a malformed command line. `rdpm ssh` replaces itself with `ssh`, so the exit status
+and Ctrl-C behave as if you had typed the ssh command.
+
 ## Install on another Mac
 
 ```bash
@@ -102,7 +129,8 @@ RDPManager/
   Store/      JSON persistence, file watching, cross-Mac merge
   Services/   resolver, prober, monitor, Keychain, Wake-on-LAN, launcher, notifications
   Views/      SwiftUI windows, sheets, settings, menu bar
-Tests/        unit tests for the store (merge, IP history, atomic writes)
-scripts/      run.sh, test.sh, package.sh, bundle-freerdp.sh, make-icon.sh
+  CLI/        rdpm, the command-line companion
+Tests/        unit tests for the store, SSH launching and the CLI's machine lookup
+scripts/      run.sh, test.sh, install-cli.sh, package.sh, bundle-freerdp.sh, make-icon.sh
 project.yml   xcodegen project definition
 ```

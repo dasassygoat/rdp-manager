@@ -24,6 +24,7 @@ targets:
       - path: RDPManager
         excludes:
           - "Info.plist"
+          - "CLI"
     info:
       path: RDPManager/Info.plist
       properties:
@@ -47,6 +48,19 @@ targets:
         GENERATE_INFOPLIST_FILE: false
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  rdpm:
+    type: tool
+    platform: macOS
+    # Shares the model and the store location with the app so both read one machines.json.
+    sources:
+      - path: RDPManager/CLI
+      - path: RDPManager/Models
+    settings:
+      base:
+        PRODUCT_NAME: rdpm
+        PRODUCT_BUNDLE_IDENTIFIER: com.lanservices.rdpmanager.cli
+        SWIFT_VERSION: "5.0"
+        CODE_SIGN_IDENTITY: "-"
   RDPManagerTests:
     type: bundle.unit-test
     platform: macOS
@@ -58,6 +72,7 @@ targets:
       - path: RDPManager/Models
       - path: RDPManager/Store
       - path: RDPManager/Services
+      - path: RDPManager/CLI/MachineLookup.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lanservices.rdpmanager.tests
@@ -67,6 +82,7 @@ schemes:
     build:
       targets:
         RDPManager: all
+        rdpm: all
     test:
       targets:
         - RDPManagerTests

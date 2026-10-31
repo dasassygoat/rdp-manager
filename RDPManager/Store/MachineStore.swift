@@ -12,13 +12,11 @@ final class MachineStore: ObservableObject {
     @Published private(set) var storeURL: URL
     @Published var lastError: String?
 
-    static let defaultDirectory: URL = FileManager.default
-        .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("RDP Manager", isDirectory: true)
+    static var defaultDirectory: URL { StoreLocation.defaultDirectory }
 
-    static var defaultStoreURL: URL { defaultDirectory.appendingPathComponent("machines.json") }
+    static var defaultStoreURL: URL { StoreLocation.defaultFileURL }
 
-    private static let pathKey = "storeFilePath"
+    private static let pathKey = StoreLocation.pathKey
 
     private var watcher: FileWatcher?
     private var pollTimer: Timer?
