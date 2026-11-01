@@ -190,6 +190,17 @@ final class DiscoveryMatchTests: StoreTestCase {
         XCTAssertEqual(Discovery(store: store).match(found)?.name, "reception")
     }
 
+    /// A silent host is listed but not ticked: nothing answered on it, so there is nothing
+    /// to connect to, and adding it is the user's call rather than the default.
+    func testSilentHostsAreListedButNotTicked() {
+        var known = Discovery.Host(ip: "192.168.1.12", openPorts: [3389])
+        known.existing = makeMachine("reception", lastIP: "192.168.1.12")
+        let found = [Discovery.Host(ip: "192.168.1.10", openPorts: [22]),
+                     Discovery.Host(ip: "192.168.1.11", mac: "AA:BB:CC:DD:EE:FF"),
+                     known]
+        XCTAssertEqual(Discovery.defaultSelection(among: found), ["192.168.1.10"])
+    }
+
     func testAddingOnlyAddsTheNewOnes() {
         let store = makeStore()
         store.add(makeMachine("reception", lastIP: "192.168.1.10"))

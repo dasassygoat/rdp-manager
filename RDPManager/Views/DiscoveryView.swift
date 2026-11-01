@@ -32,7 +32,7 @@ struct DiscoveryView: View {
             // Tick every new host once per sweep, without fighting the user afterwards.
             guard !discovery.isScanning, seededFor != count else { return }
             seededFor = count
-            selected = Set(discovery.newHosts.map(\.ip))
+            selected = discovery.defaultSelection
         }
     }
 
@@ -55,8 +55,8 @@ struct DiscoveryView: View {
                 if !discovery.macsAvailable && !discovery.hosts.isEmpty {
                     // Saying nothing here would make an empty MAC field look like the
                     // network has none, rather than like this Mac would not hand them over.
-                    Label("MAC addresses could not be read, so Wake-on-LAN is not filled in. "
-                          + "Allow RDP Manager under Privacy & Security → Local Network.",
+                    Label("The ARP cache could not be read, so Wake-on-LAN is not filled "
+                          + "in. Everything else the sweep found is here.",
                           systemImage: "info.circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -167,7 +167,9 @@ private struct DiscoveredRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(host.primary.label)
+            // A silent host gets web as its connection because a machine needs one, not
+            // because anything answered there; naming it would promise a page to open.
+            Text(host.isSilent ? "—" : host.primary.label)
                 .font(.caption)
                 .foregroundStyle(host.isSilent ? .tertiary : .secondary)
         }

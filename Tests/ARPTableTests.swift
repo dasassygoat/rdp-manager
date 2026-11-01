@@ -1,42 +1,99 @@
 import XCTest
 
 final class ARPTableTests: XCTestCase {
-    /// Copied from `arp -an` on a real Mac, including the awkward parts: an incomplete
-    /// entry, the same router listed once per interface, and link-local noise.
-    private let sample = """
-    ? (169.254.169.254) at (incomplete) on en0 [ethernet]
-    ? (169.254.172.36) at 9c:b6:d0:bc:7f:9f on en0 [ethernet]
-    ? (192.168.1.1) at 6e:63:f8:38:d8:a2 on en10 ifscope [ethernet]
-    ? (192.168.1.1) at 6e:63:f8:38:d8:a2 on en1 ifscope [ethernet]
-    ? (192.168.1.51) at a8:b1:3b:20:5c:d9 on en0 ifscope [ethernet]
-    ? (192.168.1.255) at ff:ff:ff:ff:ff:ff on en0 ifscope [ethernet]
-    """
+    /// Builds the bytes the routing socket hands back for one cache entry: a `rt_msghdr`,
+    /// the IPv4 address it is for, and the link address holding the MAC. Assembling real
+    /// structs rather than a fixture keeps the layout the same as the kernel's.
+    private func message(ip: String, mac: [UInt8]?, interface: String = "en0",
+                         addrs: Int32 = RTA_DST | RTA_GATEWAY) -> [UInt8] {
+        var destination = sockaddr_in()
+        destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        destination.sin_family = sa_family_t(AF_INET)
+        destination.sin_addr.s_addr = IPv4Subnet.parse(ip)!.bigEndian
+        let dstBytes = withUnsafeBytes(of: destination) { [UInt8]($0) }
+
+        let name = Array(interface.utf8)
+        let address = mac ?? []
+        var gateway: [UInt8] = [
+            UInt8(8 + name.count + address.count),  // sdl_len
+            UInt8(AF_LINK),                         // sdl_family
+            0, 0,                                   // sdl_index
+            6,                                      // sdl_type
+            UInt8(name.count),                      // sdl_nlen
+            UInt8(address.count),                   // sdl_alen
+            0,                                      // sdl_slen
+        ] + name + address
+        while gateway.count % 4 != 0 { gateway.append(0) }
+
+        var header = rt_msghdr()
+        header.rtm_version = UInt8(RTM_VERSION)
+        header.rtm_type = UInt8(RTM_GET)
+        header.rtm_addrs = addrs
+        header.rtm_msglen = UInt16(MemoryLayout<rt_msghdr>.size + dstBytes.count + gateway.count)
+        return withUnsafeBytes(of: header) { [UInt8]($0) } + dstBytes + gateway
+    }
+
+    /// The awkward parts of a real cache: an entry still resolving, the same router listed
+    /// once per interface, link-local noise and the broadcast address.
+    private var sample: [UInt8] {
+        message(ip: "169.254.169.254", mac: nil)
+            + message(ip: "169.254.172.36", mac: [0x9C, 0xB6, 0xD0, 0xBC, 0x7F, 0x9F])
+            + message(ip: "192.168.1.1", mac: [0x6E, 0x63, 0xF8, 0x38, 0xD8, 0xA2],
+                      interface: "en10")
+            + message(ip: "192.168.1.1", mac: [0x6E, 0x63, 0xF8, 0x38, 0xD8, 0xA2],
+                      interface: "en1")
+            + message(ip: "192.168.1.51", mac: [0xA8, 0xB1, 0x3B, 0x20, 0x5C, 0xD9])
+            + message(ip: "192.168.1.255", mac: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+    }
 
     func testCompleteEntriesAreRead() {
-        let table = ARPTable.parse(sample)
+        let table = ARPTable.macs(inRoutingMessages: sample)
         XCTAssertEqual(table["192.168.1.1"], "6E:63:F8:38:D8:A2")
         XCTAssertEqual(table["192.168.1.51"], "A8:B1:3B:20:5C:D9")
         XCTAssertEqual(table["169.254.172.36"], "9C:B6:D0:BC:7F:9F")
     }
 
     func testIncompleteEntriesAreLeftOut() {
-        XCTAssertNil(ARPTable.parse(sample)["169.254.169.254"])
+        XCTAssertNil(ARPTable.macs(inRoutingMessages: sample)["169.254.169.254"])
     }
 
     func testTheBroadcastAddressIsNotAMachine() {
-        XCTAssertNil(ARPTable.parse(sample)["192.168.1.255"])
+        XCTAssertNil(ARPTable.macs(inRoutingMessages: sample)["192.168.1.255"])
     }
 
     func testDuplicateInterfacesDoNotDuplicateHosts() {
-        let table = ARPTable.parse(sample)
-        XCTAssertEqual(table.keys.filter { $0 == "192.168.1.1" }.count, 1)
+        let table = ARPTable.macs(inRoutingMessages: sample)
         XCTAssertEqual(table.count, 3)
     }
 
-    func testEmptyAndJunkInputProduceNothing() {
-        XCTAssertTrue(ARPTable.parse("").isEmpty)
-        XCTAssertTrue(ARPTable.parse("no parentheses here\nnor here").isEmpty)
-        XCTAssertTrue(ARPTable.parse("? (not-an-ip) at 11:22:33:44:55:66 on en0").isEmpty)
+    /// The MAC sits after the interface name, so a name longer than the fixed part of the
+    /// struct must not push it out of reach.
+    func testALongInterfaceNameDoesNotLoseTheMAC() {
+        let table = ARPTable.macs(inRoutingMessages: message(
+            ip: "192.168.1.9", mac: [0x11, 0x22, 0x33, 0x44, 0x55, 0x66],
+            interface: "awdl0bridge100"))
+        XCTAssertEqual(table["192.168.1.9"], "11:22:33:44:55:66")
+    }
+
+    func testEntriesWithoutAGatewayAreSkipped() {
+        let table = ARPTable.macs(inRoutingMessages: message(
+            ip: "192.168.1.9", mac: [0x11, 0x22, 0x33, 0x44, 0x55, 0x66], addrs: RTA_DST))
+        XCTAssertTrue(table.isEmpty)
+    }
+
+    func testEmptyAndTruncatedInputProduceNothing() {
+        XCTAssertTrue(ARPTable.macs(inRoutingMessages: []).isEmpty)
+        XCTAssertTrue(ARPTable.macs(inRoutingMessages: [UInt8](repeating: 0, count: 12)).isEmpty)
+        // A length the message does not live up to must stop the walk, not read past it.
+        XCTAssertTrue(ARPTable.macs(inRoutingMessages: Array(sample.prefix(40))).isEmpty)
+    }
+
+    /// A zero length would leave the walk standing on the same message forever.
+    func testAZeroLengthMessageDoesNotHang() {
+        var bytes = sample
+        bytes[0] = 0
+        bytes[1] = 0
+        XCTAssertTrue(ARPTable.macs(inRoutingMessages: bytes).isEmpty)
     }
 
     // MARK: Normalising

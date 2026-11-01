@@ -52,8 +52,10 @@ web port alone a device opened in the browser. The reverse-DNS name becomes the 
 name when the network has one, otherwise `host-<last octet>`.
 
 The sweep then reads the ARP cache to fill in MAC addresses, which is what Wake-on-LAN
-needs and the one field nobody wants to type. That read needs Local Network permission; if
-it is refused the sheet says so and everything else still works.
+needs and the one field nobody wants to type. The cache is read from the routing socket
+rather than by running `arp`, which is handed an empty table as a subprocess and reports
+no error for it. A host found only in the cache is listed but left unticked: there is no
+way to connect to something that answered on nothing, so adding it is a decision.
 
 A host already in your list is shown greyed out rather than offered again. It is matched by
 address, then by MAC, then by name, so a machine that picked up a new DHCP lease is

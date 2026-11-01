@@ -119,6 +119,15 @@ final class Discovery: ObservableObject {
 
     var newHosts: [Host] { hosts.filter { $0.existing == nil } }
 
+    /// What a sweep ticks for the user. A host that answered on nothing is still worth
+    /// listing — it is a real device, and a MAC is all Wake-on-LAN needs — but there is no
+    /// way to connect to it, so adding it is a decision rather than the obvious default.
+    var defaultSelection: Set<String> { Self.defaultSelection(among: hosts) }
+
+    nonisolated static func defaultSelection(among hosts: [Host]) -> Set<String> {
+        Set(hosts.filter { $0.existing == nil && !$0.isSilent }.map(\.ip))
+    }
+
     func cancel() {
         task?.cancel()
         task = nil
@@ -186,7 +195,7 @@ final class Discovery: ObservableObject {
         if Task.isCancelled { return }
 
         // Read the cache only now: the probes above are what populated it.
-        let arp = await ARPTable.current()
+        let arp = ARPTable.current()
         macsAvailable = !arp.isEmpty
         let candidates = Set(openByHost.keys).union(arp.keys.filter { addresses.contains($0) })
 
