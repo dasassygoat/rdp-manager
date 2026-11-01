@@ -12,7 +12,7 @@ and connect with one click over RDP, VNC, SSH, or a web admin page.
 | Targets | Windows (RDP), Macs running the Pro RDP server (RDP, with VNC / Screen Sharing as an alternative), Linux (VNC or SSH), network gear (web admin or SSH). |
 | Discovery | User adds a machine by hostname. App resolves it (DNS and mDNS `.local`) on a schedule, records every IP change, and pings for online/offline status. |
 | Credentials | Stored in the macOS Keychain, per machine, so one click connects. |
-| RDP client | Prefer Microsoft Windows App when installed. Fall back to a bundled FreeRDP (`xfreerdp`). |
+| RDP client | Prefer Microsoft Windows App when installed. Fall back to a bundled FreeRDP (`xfreerdp`), but only when its Mach-O header holds an architecture this Mac can start — the bundled copy is whatever the packaging Mac's Homebrew built. |
 | Features v1 | Wake-on-LAN, groups/tags/notes, SSH and web links, IP change history, offline/IP-change alerts. |
 | Network scope | One local network (no multi-site logic). |
 | Sharing | Machine list lives in a JSON file the user can place on a network share or iCloud Drive. Credentials never leave each Mac's Keychain. |

@@ -105,15 +105,47 @@ enum Launcher {
     }
 
     /// The bundled FreeRDP client first, then a Homebrew install.
-    static func freerdpURL() -> URL? {
-        let bundled = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Helpers/freerdp/bin/sdl-freerdp")
-        let candidates = [
-            bundled,
+    static var defaultFreeRDPCandidates: [URL] {
+        [
+            Bundle.main.bundleURL
+                .appendingPathComponent("Contents/Helpers/freerdp/bin/sdl-freerdp"),
             URL(fileURLWithPath: "/opt/homebrew/bin/sdl-freerdp"),
             URL(fileURLWithPath: "/usr/local/bin/sdl-freerdp"),
         ]
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
+    }
+
+    /// Set by tests, which need candidates that do not depend on what the machine running
+    /// them happens to have installed — in particular a binary for the architecture this
+    /// Mac is not, which no real install would provide.
+    static var freerdpCandidateOverride: [URL]?
+
+    static var freerdpCandidates: [URL] {
+        freerdpCandidateOverride ?? defaultFreeRDPCandidates
+    }
+
+    /// Only a binary this Mac can actually start counts. The bundled FreeRDP carries the
+    /// architecture of the Mac that packaged it, so on an Intel Mac it is present and
+    /// executable yet cannot run; skipping it here lets `.auto` fall through to Windows App
+    /// instead of surfacing "Bad CPU type in executable".
+    static func freerdpURL() -> URL? {
+        freerdpCandidates.first { ExecutableArchitecture.canRun(fileAt: $0) }
+    }
+
+    /// Present but unrunnable is worth telling apart from absent, in Settings and in the
+    /// alert: the two have different remedies.
+    enum FreeRDPStatus {
+        case usable(URL)
+        case wrongArchitecture(URL, builtFor: String)
+        case absent
+    }
+
+    static var freerdpStatus: FreeRDPStatus {
+        if let url = freerdpURL() { return .usable(url) }
+        guard let present = freerdpCandidates.first(where: {
+            FileManager.default.isExecutableFile(atPath: $0.path)
+        }) else { return .absent }
+        return .wrongArchitecture(present, builtFor: ExecutableArchitecture.describe(
+            ExecutableArchitecture.architectures(ofFileAt: present)))
     }
 
     static var rdpPreference: RDPClientPreference {
@@ -154,8 +186,18 @@ enum Launcher {
 
     private static let missingWindowsApp =
         "Windows App is not installed. Get it free from the Mac App Store (search for \"Windows App\")."
-    private static let missingFreeRDP =
-        "FreeRDP was not found in the app bundle or at /opt/homebrew/bin/sdl-freerdp (install with: brew install freerdp)."
+    /// Separates the two reasons FreeRDP is unavailable, because "not found" is wrong and
+    /// unactionable when the binary is right there but built for another architecture.
+    private static var missingFreeRDP: String {
+        switch freerdpStatus {
+        case .wrongArchitecture(let url, let built):
+            return "The FreeRDP at \(url.path) is built for \(built) and cannot run on this "
+                + "Mac. Use Windows App instead, or install a native build with: "
+                + "brew install freerdp."
+        case .usable, .absent:
+            return "FreeRDP was not found in the app bundle or at /opt/homebrew/bin/sdl-freerdp (install with: brew install freerdp)."
+        }
+    }
 
     /// Machine names become filenames, so anything that is not a letter, digit, dash or
     /// underscore is replaced.

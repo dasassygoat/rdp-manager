@@ -105,7 +105,9 @@ Settings → Privacy & Security, scroll to the message about RDP Manager and cli
 Notes:
 
 * The bundled FreeRDP is Apple Silicon only (it comes from Homebrew on the build Mac).
-  On an Intel Mac the app runs, but RDP needs Windows App.
+  On an Intel Mac the app runs, but RDP needs Windows App. The app checks the Mach-O
+  header before offering FreeRDP, so an Intel Mac is told to use Windows App rather
+  than being handed a binary its CPU cannot start.
 * Machine passwords live in each Mac's own Keychain and are not part of the zip or the
   shared machine list. Enter them once per Mac.
 * To share one machine list, point every Mac at the same folder in Settings → Storage.
@@ -163,7 +165,8 @@ RDPManager/
   Services/   resolver, prober, monitor, Keychain, Wake-on-LAN, launcher, notifications
   Views/      SwiftUI windows, sheets, settings, menu bar
   CLI/        rdpm, the command-line companion (embedded in the app bundle at build time)
-Tests/        unit tests for the store, SSH launching and the CLI's machine lookup
+Tests/        unit tests for the store, SSH launching, executable architectures
+              and the CLI's machine lookup
 scripts/      run.sh, test.sh, install-cli.sh, package.sh, bundle-freerdp.sh, make-icon.sh
 project.yml   xcodegen project definition
 ```

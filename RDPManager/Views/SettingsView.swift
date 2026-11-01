@@ -148,10 +148,17 @@ struct ConnectionSettings: View {
                     }
                 }
                 LabeledContent("FreeRDP") {
-                    if let url = Launcher.freerdpURL() {
+                    switch Launcher.freerdpStatus {
+                    case .usable(let url):
                         Label(url.path, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                             .lineLimit(2)
-                    } else {
+                    case .wrongArchitecture(_, let built):
+                        // "Not found" would be a lie: it is there, it just cannot start here.
+                        Label("Built for \(built); cannot run on this Mac",
+                              systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                            .lineLimit(2)
+                    case .absent:
                         Label("Not found", systemImage: "xmark.circle").foregroundStyle(.secondary)
                     }
                 }
