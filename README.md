@@ -65,6 +65,25 @@ in and says how many it filled; a MAC already on record is left alone.
 Discovery only ever runs when you ask it to, and it refuses a subnet larger than 1,024
 addresses rather than sweeping something enormous.
 
+## Updates
+
+**RDP Manager → Check for Updates…**, or Settings → General, which also shows the version,
+when it last looked, and a switch to stop it looking on its own. Left on, it checks at
+launch and at most once a day.
+
+A new version is offered with its release notes and installed only when you click Update;
+you can skip a version, and a later one is still offered. The download is checked before
+anything is replaced: it must carry the same bundle identifier, be signed by the same
+Developer ID team as the copy already running, and pass the same Gatekeeper assessment
+macOS applies to an app being installed. Anything that cannot be established is a refusal,
+not a warning. The running app is moved aside rather than deleted and moved back if the new
+one fails to land, and the swap is abandoned entirely if the app has not quit.
+
+> Updates are read from this repository's GitHub releases, which means they only work while
+> it is **public**. From a private repository the API answers 404 to anyone who is not a
+> member, so no other Mac could download the update; the app says so rather than failing
+> silently.
+
 ## Command line
 
 In the app: **RDP Manager → Install Command Line Tool…**, or Settings → Connections →
@@ -191,7 +210,7 @@ RDPManager/
   Views/      SwiftUI windows, sheets, settings, menu bar
   CLI/        rdpm, the command-line companion (embedded in the app bundle at build time)
 Tests/        unit tests for the store, SSH launching, executable architectures,
-              network discovery and the CLI's machine lookup
+              network discovery, update checking and the CLI's machine lookup
 scripts/      run.sh, test.sh, install-cli.sh, package.sh, bundle-freerdp.sh, make-icon.sh
 project.yml   xcodegen project definition
 ```

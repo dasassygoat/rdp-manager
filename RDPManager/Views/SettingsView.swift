@@ -22,6 +22,8 @@ struct GeneralSettings: View {
     @AppStorage(NotificationKind.offline.defaultsKey) private var notifyOffline = true
     @AppStorage(NotificationKind.backOnline.defaultsKey) private var notifyBackOnline = true
     @AppStorage(NotificationKind.ipChange.defaultsKey) private var notifyIPChange = true
+    @AppStorage(Updater.automaticKey) private var checkForUpdates = true
+    @ObservedObject private var updater = Updater.shared
 
     var body: some View {
         Form {
@@ -37,8 +39,32 @@ struct GeneralSettings: View {
                 Toggle("A machine comes back online", isOn: $notifyBackOnline)
                 Toggle("A machine's IP address changes", isOn: $notifyIPChange)
             }
+            Section("Updates") {
+                LabeledContent("Version", value: AppVersion.running?.description ?? "unknown")
+                Toggle("Check for updates automatically", isOn: $checkForUpdates)
+                HStack {
+                    Button("Check Now") { updater.check(userInitiated: true) }
+                        .disabled(updater.state.isBusy)
+                    Spacer()
+                    Text(lastCheckedText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text("Updates come from the project's GitHub releases. One is only installed "
+                     + "after you say so, and only if it is signed by the same developer as "
+                     + "this copy.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
+    }
+
+    private var lastCheckedText: String {
+        guard let date = updater.lastChecked else { return "Not checked yet" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return "Checked " + formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 

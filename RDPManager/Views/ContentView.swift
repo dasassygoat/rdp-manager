@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var editing: Machine?
     @State private var creating = false
     @State private var discovering = false
+    @ObservedObject private var updater = Updater.shared
 
     private var visibleMachines: [Machine] {
         store.machines.filter { machine in
@@ -81,6 +82,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $discovering) {
             DiscoveryView(store: store)
+        }
+        .sheet(isPresented: $updater.isPresenting) {
+            UpdateView(updater: updater)
         }
         .onReceive(NotificationCenter.default.publisher(for: .newMachineRequested)) { _ in
             creating = true

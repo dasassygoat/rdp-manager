@@ -30,6 +30,7 @@ struct RDPManagerApp: App {
                     .keyboardShortcut("r", modifiers: .command)
             }
             CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { Updater.shared.check(userInitiated: true) }
                 Button("Install Command Line Tool…") { installCommandLineTool() }
             }
         }
@@ -83,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Notifier.shared.requestAuthorization()
         }
         Monitor.shared.start()
+        Updater.shared.checkInBackground()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
