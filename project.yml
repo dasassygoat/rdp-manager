@@ -45,7 +45,7 @@ targets:
         LSApplicationCategoryType: public.app-category.utilities
         LSMinimumSystemVersion: "14.0"
         NSHumanReadableCopyright: ""
-        NSLocalNetworkUsageDescription: RDP Manager checks whether the computers you added are online and sends Wake-on-LAN packets.
+        NSLocalNetworkUsageDescription: RDP Manager checks whether the computers you added are online, scans this network when you ask it to find machines, and sends Wake-on-LAN packets.
         NSUserNotificationsUsageDescription: RDP Manager notifies you when a computer goes offline or changes its IP address.
     entitlements:
       path: RDPManager/RDPManager.entitlements

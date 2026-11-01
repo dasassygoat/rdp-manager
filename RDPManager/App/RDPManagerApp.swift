@@ -20,6 +20,10 @@ struct RDPManagerApp: App {
                     NotificationCenter.default.post(name: .newMachineRequested, object: nil)
                 }
                 .keyboardShortcut("n", modifiers: .command)
+                Button("Find Machines on This Network…") {
+                    NotificationCenter.default.post(name: .discoveryRequested, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
             }
             CommandGroup(after: .toolbar) {
                 Button("Refresh Status") { monitor.refreshNow() }
@@ -45,6 +49,7 @@ struct RDPManagerApp: App {
 
 extension Notification.Name {
     static let newMachineRequested = Notification.Name("newMachineRequested")
+    static let discoveryRequested = Notification.Name("discoveryRequested")
 }
 
 /// Links `rdpm` into /usr/local/bin and says what happened, since a menu item that reports

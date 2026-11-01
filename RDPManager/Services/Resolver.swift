@@ -39,3 +39,27 @@ enum Resolver {
         }.value
     }
 }
+
+extension Resolver {
+    /// Reverse lookup, for naming a host a sweep found by address. Returns nil when the
+    /// network has no PTR record and no Bonjour name for it, which is common.
+    static func reverseLookup(_ ip: String) async -> String? {
+        await Task.detached(priority: .utility) { () -> String? in
+            var addr = sockaddr_in()
+            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            addr.sin_family = sa_family_t(AF_INET)
+            guard inet_pton(AF_INET, ip, &addr.sin_addr) == 1 else { return nil }
+            var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            let status = withUnsafePointer(to: &addr) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    getnameinfo(sa, socklen_t(MemoryLayout<sockaddr_in>.size),
+                                &buffer, socklen_t(buffer.count), nil, 0, NI_NAMEREQD)
+                }
+            }
+            guard status == 0 else { return nil }
+            let name = String(cString: buffer)
+            // NI_NAMEREQD means a numeric answer is an error, but be defensive anyway.
+            return name.isEmpty || name == ip ? nil : name
+        }.value
+    }
+}

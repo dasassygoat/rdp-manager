@@ -27,7 +27,7 @@
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>RDP Manager checks whether the computers you added are online and sends Wake-on-LAN packets.</string>
+	<string>RDP Manager checks whether the computers you added are online, scans this network when you ask it to find machines, and sends Wake-on-LAN packets.</string>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>RDP Manager notifies you when a computer goes offline or changes its IP address.</string>
 </dict>

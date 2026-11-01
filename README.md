@@ -2,10 +2,10 @@
 
 [![Tests](https://github.com/dasassygoat/rdp-manager/actions/workflows/tests.yml/badge.svg)](https://github.com/dasassygoat/rdp-manager/actions/workflows/tests.yml)
 
-A macOS utility for the computers on your local network. Add machines by name, and the
-app keeps track of their IP addresses as they change, shows whether each is online, and
-connects with one click over RDP, VNC, SSH, or a web admin page. See [SPEC.md](SPEC.md)
-for the design decisions.
+A macOS utility for the computers on your local network. Scan the network to find them,
+or add them by name, and the app keeps track of their IP addresses as they change, shows
+whether each is online, and connects with one click over RDP, VNC, SSH, or a web admin
+page. See [SPEC.md](SPEC.md) for the design decisions.
 
 ## Requirements
 
@@ -39,6 +39,28 @@ without launching the app.
 
 The same script runs on every push and pull request via
 [.github/workflows/tests.yml](.github/workflows/tests.yml) on a macOS runner.
+
+## Finding machines
+
+**Find Machines** in the toolbar (⇧⌘F, or File → Find Machines on This Network…) sweeps
+the subnet this Mac is on and lists what it finds, ticked and ready to add.
+
+Each address is probed on 3389, 5900, 22, 80 and 443, all five at once, so a /24 takes
+under ten seconds. What answers decides how the machine is set up: 3389 makes it a Windows
+machine that connects over RDP, 5900 a Mac over VNC, 22 alone a Linux box over SSH, and a
+web port alone a device opened in the browser. The reverse-DNS name becomes the machine
+name when the network has one, otherwise `host-<last octet>`.
+
+The sweep then reads the ARP cache to fill in MAC addresses, which is what Wake-on-LAN
+needs and the one field nobody wants to type. That read needs Local Network permission; if
+it is refused the sheet says so and everything else still works.
+
+A host already in your list is shown greyed out rather than offered again. It is matched by
+address, then by MAC, then by name, so a machine that picked up a new DHCP lease is
+recognised instead of added twice.
+
+Discovery only ever runs when you ask it to, and it refuses a subnet larger than 1,024
+addresses rather than sweeping something enormous.
 
 ## Command line
 
@@ -165,8 +187,8 @@ RDPManager/
   Services/   resolver, prober, monitor, Keychain, Wake-on-LAN, launcher, notifications
   Views/      SwiftUI windows, sheets, settings, menu bar
   CLI/        rdpm, the command-line companion (embedded in the app bundle at build time)
-Tests/        unit tests for the store, SSH launching, executable architectures
-              and the CLI's machine lookup
+Tests/        unit tests for the store, SSH launching, executable architectures,
+              network discovery and the CLI's machine lookup
 scripts/      run.sh, test.sh, install-cli.sh, package.sh, bundle-freerdp.sh, make-icon.sh
 project.yml   xcodegen project definition
 ```

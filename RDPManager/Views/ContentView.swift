@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var search = ""
     @State private var editing: Machine?
     @State private var creating = false
+    @State private var discovering = false
 
     private var visibleMachines: [Machine] {
         store.machines.filter { machine in
@@ -55,6 +56,12 @@ struct ContentView: View {
                     .help("Add a machine (⌘N)")
             }
             ToolbarItem {
+                Button { discovering = true } label: {
+                    Label("Find Machines", systemImage: "antenna.radiowaves.left.and.right")
+                }
+                .help("Scan this network for machines (⇧⌘F)")
+            }
+            ToolbarItem {
                 Button { monitor.refreshNow() } label: {
                     if monitor.isChecking {
                         ProgressView().controlSize(.small)
@@ -72,8 +79,14 @@ struct ContentView: View {
         .sheet(item: $editing) { machine in
             MachineEditView(machine: machine, isNew: false)
         }
+        .sheet(isPresented: $discovering) {
+            DiscoveryView(store: store)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .newMachineRequested)) { _ in
             creating = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .discoveryRequested)) { _ in
+            discovering = true
         }
     }
 }
