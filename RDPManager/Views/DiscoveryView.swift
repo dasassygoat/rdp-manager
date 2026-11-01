@@ -76,7 +76,14 @@ struct DiscoveryView: View {
         }
         var text = "\(new) new \(new == 1 ? "machine" : "machines")"
         if known > 0 { text += ", \(known) already in your list" }
-        return text + " on \(discovery.subnet?.description ?? "the network")."
+        text += " on \(discovery.subnet?.description ?? "the network")."
+        // Worth saying: the list changed without the user asking for anything.
+        if discovery.backfilled > 0 {
+            let count = discovery.backfilled
+            text += " Filled in the MAC address of \(count) "
+                + (count == 1 ? "machine" : "machines") + " already in your list."
+        }
+        return text
     }
 
     @ViewBuilder

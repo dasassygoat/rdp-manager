@@ -59,7 +59,8 @@ way to connect to something that answered on nothing, so adding it is a decision
 
 A host already in your list is shown greyed out rather than offered again. It is matched by
 address, then by MAC, then by name, so a machine that picked up a new DHCP lease is
-recognised instead of added twice.
+recognised instead of added twice. If that machine has no MAC recorded, the sweep fills one
+in and says how many it filled; a MAC already on record is left alone.
 
 Discovery only ever runs when you ask it to, and it refuses a subnet larger than 1,024
 addresses rather than sweeping something enormous.

@@ -9,10 +9,10 @@ import Combine
 ///
 /// The sweep then reads the ARP cache, which the probes above will have populated, to fill
 /// in MAC addresses for Wake-on-LAN and to notice hosts that are on the network but are not
-/// listening on anything the app knows. Reading that cache is best-effort: it needs
-/// permission this app may not have been granted, and when it comes back empty discovery
-/// still works from the port probes alone — it just cannot fill in a MAC. `macsAvailable`
-/// says which happened so the UI can tell the user instead of silently omitting them.
+/// listening on anything the app knows. Reading it is best-effort: when it comes back empty
+/// discovery still works from the port probes alone, it just cannot fill in a MAC, and
+/// `macsAvailable` says which happened so the UI can tell the user rather than silently
+/// omitting them.
 @MainActor
 final class Discovery: ObservableObject {
     /// Chosen to identify rather than to survey: each one maps to something the app can do.
@@ -95,9 +95,10 @@ final class Discovery: ObservableObject {
     @Published private(set) var subnet: IPv4Subnet?
     @Published private(set) var interfaceName: String?
     /// False when the last sweep could not read the ARP cache, so no MAC was filled in.
-    /// Reading it needs permission this app may be refused, and a silently missing MAC
-    /// would look like the network simply had none.
+    /// A silently missing MAC would look like the network simply had none.
     @Published private(set) var macsAvailable = true
+    /// Machines already in the list that this sweep gave a MAC they were missing.
+    @Published private(set) var backfilled = 0
     @Published var error: String?
 
     private let store: MachineStore
@@ -207,7 +208,27 @@ final class Discovery: ObservableObject {
             host.existing = match(host)
             found.append(host)
         }
-        hosts = found
+        hosts = backfillMACs(into: found)
+    }
+
+    /// Fills in the MAC of a machine already in the list that has none, which is the field
+    /// Wake-on-LAN needs and the one a machine added before the sweep could read the cache
+    /// is missing. Only ever fills an empty field: a MAC already recorded is the user's,
+    /// and a sweep that disagreed with it would be wrong about which machine this is.
+    /// Returns the hosts with their matches refreshed, so a row does not show stale data.
+    /// Not private so the tests can drive it directly with a store they built.
+    func backfillMACs(into found: [Host]) -> [Host] {
+        backfilled = 0
+        return found.map { host in
+            guard var machine = host.existing, machine.macAddress.isEmpty,
+                  let mac = host.mac, !mac.isEmpty else { return host }
+            machine.macAddress = mac
+            store.update(machine)
+            backfilled += 1
+            var updated = host
+            updated.existing = machine
+            return updated
+        }
     }
 
     /// Matches a found host against the list by address, then MAC, then name, so a machine

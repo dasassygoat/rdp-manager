@@ -201,6 +201,70 @@ final class DiscoveryMatchTests: StoreTestCase {
         XCTAssertEqual(Discovery.defaultSelection(among: found), ["192.168.1.10"])
     }
 
+    // MARK: Filling in a MAC the list is missing
+
+    /// A machine added before the sweep could read the ARP cache has no MAC, so
+    /// Wake-on-LAN cannot work for it until something fills one in.
+    func testAKnownMachineWithoutAMACGetsOne() {
+        let store = makeStore()
+        store.add(makeMachine("reception", lastIP: "192.168.1.10"))
+        let discovery = Discovery(store: store)
+
+        var found = host("192.168.1.10", mac: "AA:BB:CC:DD:EE:FF")
+        found.existing = discovery.match(found)
+        let updated = discovery.backfillMACs(into: [found])
+
+        XCTAssertEqual(discovery.backfilled, 1)
+        XCTAssertEqual(store.machines.first?.macAddress, "AA:BB:CC:DD:EE:FF")
+        // The row has to show the machine as it now is, not as it was matched.
+        XCTAssertEqual(updated.first?.existing?.macAddress, "AA:BB:CC:DD:EE:FF")
+    }
+
+    /// A MAC already on record is the user's. A sweep disagreeing with it means the match
+    /// is wrong about which machine this is, so overwriting would lose the right answer.
+    func testAnExistingMACIsNeverOverwritten() {
+        let store = makeStore()
+        var machine = makeMachine("reception", lastIP: "192.168.1.10")
+        machine.macAddress = "11:22:33:44:55:66"
+        store.add(machine)
+        let discovery = Discovery(store: store)
+
+        var found = host("192.168.1.10", mac: "AA:BB:CC:DD:EE:FF")
+        found.existing = discovery.match(found)
+        _ = discovery.backfillMACs(into: [found])
+
+        XCTAssertEqual(discovery.backfilled, 0)
+        XCTAssertEqual(store.machines.first?.macAddress, "11:22:33:44:55:66")
+    }
+
+    /// A sweep that could not read the cache must not blank out the field.
+    func testAHostWithoutAMACChangesNothing() {
+        let store = makeStore()
+        var machine = makeMachine("reception", lastIP: "192.168.1.10")
+        machine.macAddress = "11:22:33:44:55:66"
+        store.add(machine)
+        let discovery = Discovery(store: store)
+
+        var found = host("192.168.1.10")
+        found.existing = discovery.match(found)
+        _ = discovery.backfillMACs(into: [found])
+
+        XCTAssertEqual(discovery.backfilled, 0)
+        XCTAssertEqual(store.machines.first?.macAddress, "11:22:33:44:55:66")
+    }
+
+    /// A host that is not in the list yet is added by Add, not written to behind the scenes.
+    func testAnUnknownHostIsNotWrittenToTheList() {
+        let store = makeStore()
+        let discovery = Discovery(store: store)
+        let found = host("192.168.1.77", mac: "AA:BB:CC:DD:EE:FF")
+
+        _ = discovery.backfillMACs(into: [found])
+
+        XCTAssertEqual(discovery.backfilled, 0)
+        XCTAssertTrue(store.machines.isEmpty)
+    }
+
     func testAddingOnlyAddsTheNewOnes() {
         let store = makeStore()
         store.add(makeMachine("reception", lastIP: "192.168.1.10"))
