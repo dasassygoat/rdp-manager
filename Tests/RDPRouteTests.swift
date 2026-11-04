@@ -79,4 +79,61 @@ final class RDPRouteTests: StoreTestCase {
         XCTAssertTrue(Launcher.hasSavedPassword(alpha))
         XCTAssertFalse(Launcher.hasSavedPassword(beta))
     }
+
+    // MARK: Finding the bundled OpenSSL providers
+
+    private func layout(bundledModules: Bool) throws -> URL {
+        let root = directory.appendingPathComponent("freerdp-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        if bundledModules {
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent("lib/ossl-modules"),
+                withIntermediateDirectories: true)
+        }
+        return bin.appendingPathComponent("sdl-freerdp")
+    }
+
+    /// Without this the bundled FreeRDP has no MD4, so no NTLM, so NLA fails with
+    /// SEC_E_NO_CREDENTIALS and a saved password looks like it was ignored.
+    func testTheBundledProvidersAreFound() throws {
+        let executable = try layout(bundledModules: true)
+        let found = Launcher.opensslModulesDirectory(forExecutableAt: executable)
+        XCTAssertEqual(found?.lastPathComponent, "ossl-modules")
+        XCTAssertEqual(found?.deletingLastPathComponent().lastPathComponent, "lib")
+    }
+
+    /// Nothing is pointed anywhere when there is no providers directory to point at.
+    /// Setting OPENSSL_MODULES to a folder that is not there would break a FreeRDP that
+    /// was finding its own providers perfectly well.
+    func testNothingIsFoundWhenThereAreNoBundledProviders() throws {
+        let executable = try layout(bundledModules: false)
+        XCTAssertNil(Launcher.opensslModulesDirectory(forExecutableAt: executable))
+    }
+
+    /// Homebrew lays its install out the same way — `bin/sdl-freerdp` beside
+    /// `lib/ossl-modules` — so the same relative walk lands on its own providers rather
+    /// than on nothing. Worth pinning: it means one rule covers both installs.
+    func testAHomebrewLayoutResolvesToItsOwnProviders() throws {
+        let prefix = directory.appendingPathComponent("opt/homebrew")
+        try FileManager.default.createDirectory(
+            at: prefix.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: prefix.appendingPathComponent("lib/ossl-modules"),
+            withIntermediateDirectories: true)
+        let found = Launcher.opensslModulesDirectory(
+            forExecutableAt: prefix.appendingPathComponent("bin/sdl-freerdp"))
+        XCTAssertEqual(found?.path, prefix.appendingPathComponent("lib/ossl-modules").path)
+    }
+
+    /// A file where the directory should be is not a providers directory.
+    func testAFileNamedLikeTheDirectoryIsNotUsed() throws {
+        let executable = try layout(bundledModules: false)
+        let impostor = executable.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("lib/ossl-modules")
+        try FileManager.default.createDirectory(
+            at: impostor.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: impostor)
+        XCTAssertNil(Launcher.opensslModulesDirectory(forExecutableAt: executable))
+    }
 }

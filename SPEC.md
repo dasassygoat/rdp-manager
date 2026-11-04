@@ -134,6 +134,11 @@ bundle), then the default location.
 ## Build
 
 * Xcode project generated with `xcodegen` from `project.yml`.
-* FreeRDP is built from Homebrew and copied into the app bundle with its dylibs
-  (`scripts/bundle-freerdp.sh`). Until that script runs, the app also looks for
+* FreeRDP is built from Homebrew and copied into the app bundle with its dylibs and
+  OpenSSL's provider modules (`scripts/bundle-freerdp.sh`). The providers are
+  `dlopen`ed rather than linked, so they have to be copied deliberately; the legacy
+  one carries MD4, MD4 is what NTLM needs, and under the hardened runtime library
+  validation refuses to load Homebrew's copy. The app points `OPENSSL_MODULES` at
+  the bundled directory, without which NLA fails as `SEC_E_NO_CREDENTIALS` and a
+  saved password appears to be ignored. Until that script runs, the app also looks for
   `/opt/homebrew/bin/xfreerdp`.

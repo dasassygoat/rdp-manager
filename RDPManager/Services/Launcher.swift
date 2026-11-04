@@ -287,11 +287,43 @@ enum Launcher {
         let process = Process()
         process.executableURL = executable
         process.arguments = args
+        if let modules = opensslModulesDirectory(forExecutableAt: executable) {
+            var environment = ProcessInfo.processInfo.environment
+            environment["OPENSSL_MODULES"] = modules.path
+            process.environment = environment
+        }
         do {
             try process.run()
         } catch {
             throw LaunchError.failed("FreeRDP failed to start: \(error.localizedDescription)")
         }
+    }
+
+    /// Where the bundled FreeRDP's OpenSSL should look for its provider modules.
+    ///
+    /// OpenSSL finds providers through a directory compiled into libcrypto, which points
+    /// at the Homebrew keg on whichever Mac built the bundle — a path that is wrong once
+    /// the library is copied into the app and absent entirely on anyone else's Mac. The
+    /// provider that matters is the legacy one, because it is the only source of MD4;
+    /// without MD4 there is no NTLM, and NLA then fails with SEC_E_NO_CREDENTIALS no
+    /// matter how correct the password is. That is a saved password looking ignored.
+    ///
+    /// Returns nil when there is no bundled copy — a FreeRDP installed by Homebrew finds
+    /// its own providers, and pointing it at a directory that does not exist would break
+    /// the one case that currently works.
+    nonisolated static func opensslModulesDirectory(
+        forExecutableAt url: URL,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        let directory = url
+            .deletingLastPathComponent()    // …/freerdp/bin
+            .deletingLastPathComponent()    // …/freerdp
+            .appendingPathComponent("lib", isDirectory: true)
+            .appendingPathComponent("ossl-modules", isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return nil }
+        return directory
     }
 
     // MARK: VNC / SSH / Web
