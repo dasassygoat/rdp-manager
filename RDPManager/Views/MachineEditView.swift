@@ -32,6 +32,13 @@ struct MachineEditView: View {
                     Text("The password stays in this Mac's Keychain. It is never written to the shared machine list.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // Worth saying here rather than only in Settings: this is where the
+                    // password is typed, so this is where the surprise would land.
+                    if machine.primary == .rdp, !password.isEmpty {
+                        Text(passwordRouteNote)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Section("Organize") {
                     TextField("Group", text: $machine.group, prompt: Text("Office, Servers, Lab…"))
@@ -73,6 +80,20 @@ struct MachineEditView: View {
         .onAppear {
             tagsText = machine.tagsText
             if !isNew { password = Keychain.password(for: machine.id) ?? "" }
+        }
+    }
+
+    /// Which client a saved password actually reaches. Windows App on macOS cannot be
+    /// handed one, so a password only signs you in when FreeRDP carries the connection.
+    private var passwordRouteNote: String {
+        switch Launcher.rdpPreference {
+        case .windowsApp:
+            return "Windows App cannot be given a password, so it will still ask every "
+                + "time. Change the client in Settings \u{2192} Connections to use this "
+                + "password."
+        case .freerdp, .auto:
+            return "RDP connections for this machine will use FreeRDP, the only client "
+                + "that can be given a password."
         }
     }
 

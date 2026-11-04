@@ -14,7 +14,7 @@ and connect with one click over RDP, VNC, SSH, or a web admin page.
 | Network sweep | TCP connect to 3389, 5900, 22, 80 and 443, five ports at a time per host and 32 hosts at a time, so a /24 completes in under ten seconds. Open ports decide kind and primary connection; the ARP cache, read from the routing socket, supplies the MAC for Wake-on-LAN, and the sheet says so when that read comes back empty rather than leaving the field quietly blank. Subnets over 1,024 addresses are refused. |
 | Updates | Checked against the repository's GitHub releases at launch and at most once a day, and installed only on confirmation. A download must carry the same bundle identifier, be signed by the same Developer ID team as the running copy, and pass `spctl` as an install; anything unprovable is refused. The old bundle is moved aside and restored if the new one fails to land, and the swap is abandoned if the app has not quit. Requires the repository to be public, since the API hides a private one behind a 404. |
 | Credentials | Stored in the macOS Keychain, per machine, so one click connects. |
-| RDP client | Prefer Microsoft Windows App when installed. Fall back to a bundled FreeRDP (`xfreerdp`), but only when its Mach-O header holds an architecture this Mac can start — the bundled copy is whatever the packaging Mac's Homebrew built. |
+| RDP client | A machine with a password saved goes to the bundled FreeRDP, the only client that can be given one. Otherwise prefer Microsoft Windows App when installed, and fall back to FreeRDP — but only when its Mach-O header holds an architecture this Mac can start, the bundled copy being whatever the packaging Mac's Homebrew built. |
 | Features v1 | Wake-on-LAN, groups/tags/notes, SSH and web links, IP change history, offline/IP-change alerts. |
 | Network scope | One local network (no multi-site logic). |
 | Sharing | Machine list lives in a JSON file the user can place on a network share or iCloud Drive. Credentials never leave each Mac's Keychain. |
@@ -23,7 +23,7 @@ and connect with one click over RDP, VNC, SSH, or a web admin page.
 
 | Type | Mechanism |
 |---|---|
-| RDP via Windows App | App writes a temporary `.rdp` file (full address, username, display options) and opens it with Windows App. Windows App prompts for the password once and can remember it. |
+| RDP via Windows App | App writes a temporary `.rdp` file (full address, username, display options) and opens it with Windows App. The password cannot be included: a `.rdp` file carries one in `password 51:b:` as a Windows DPAPI blob, and the Mac build has no code for that field, so Windows App asks every time. It remembers credentials only for connections created inside it, not for a file it is handed. |
 | RDP via FreeRDP | `xfreerdp /v:host /u:user /p:password` with the password pulled from the Keychain. Fully unattended. |
 | VNC | Opens `vnc://user:password@host` which launches the built-in Screen Sharing app. |
 | SSH | Writes a `.command` script holding the `ssh` command and opens it with the terminal chosen in Settings, which defaults to Warp when installed. With System default chosen, or no terminal found, opens `ssh://user@host` and lets macOS pick the app. |

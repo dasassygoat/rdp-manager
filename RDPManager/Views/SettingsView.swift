@@ -188,7 +188,7 @@ struct ConnectionSettings: View {
                         Label("Not found", systemImage: "xmark.circle").foregroundStyle(.secondary)
                     }
                 }
-                Text("Windows App asks for the password on first connection and can remember it. FreeRDP signs in automatically with the password from the Keychain.")
+                Text("Only FreeRDP can be given a saved password; Windows App on macOS has no way to accept one and asks every time. On \"Best available\", a machine with a password saved connects through FreeRDP and the rest go to Windows App.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

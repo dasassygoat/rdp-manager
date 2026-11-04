@@ -9,7 +9,7 @@ enum RDPClientPreference: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .auto: return "Windows App, then FreeRDP"
+        case .auto: return "Best available for each machine"
         case .windowsApp: return "Windows App only"
         case .freerdp: return "FreeRDP only"
         }
@@ -163,6 +163,31 @@ enum Launcher {
 
     // MARK: RDP
 
+    enum RDPRoute: Equatable { case windowsApp, freerdp }
+
+    /// Looked up through a property so the routing tests can say what is saved without a
+    /// real Keychain item for a machine that does not exist.
+    static var savedPassword: (UUID) -> String? = { Keychain.password(for: $0) }
+
+    static func hasSavedPassword(_ machine: Machine) -> Bool {
+        !(savedPassword(machine.id) ?? "").isEmpty
+    }
+
+    /// Which client `.auto` picks. A saved password decides it, because only FreeRDP can
+    /// be handed one: a .rdp file carries a password in `password 51:b:`, which is a
+    /// Windows DPAPI blob, and the Mac build of Windows App has no code for that field at
+    /// all. So however the file is written, Windows App asks for the password again every
+    /// time — which is what made saved passwords look like they were never remembered.
+    /// Windows App does remember credentials, but only for connections created inside it,
+    /// not for a file it is handed.
+    nonisolated static func autoRoute(hasWindowsApp: Bool, hasFreeRDP: Bool,
+                                      hasSavedPassword: Bool) -> RDPRoute? {
+        if hasSavedPassword, hasFreeRDP { return .freerdp }
+        if hasWindowsApp { return .windowsApp }
+        if hasFreeRDP { return .freerdp }
+        return nil
+    }
+
     static func rdp(_ machine: Machine) throws {
         let windowsApp = windowsAppURL()
         let freerdp = freerdpURL()
@@ -174,11 +199,15 @@ enum Launcher {
             guard let freerdp else { throw LaunchError.noClient(missingFreeRDP) }
             try rdpViaFreeRDP(machine, executable: freerdp)
         case .auto:
-            if let windowsApp {
-                try rdpViaWindowsApp(machine, app: windowsApp)
-            } else if let freerdp {
+            switch autoRoute(hasWindowsApp: windowsApp != nil, hasFreeRDP: freerdp != nil,
+                             hasSavedPassword: hasSavedPassword(machine)) {
+            case .freerdp:
+                guard let freerdp else { throw LaunchError.noClient(missingFreeRDP) }
                 try rdpViaFreeRDP(machine, executable: freerdp)
-            } else {
+            case .windowsApp:
+                guard let windowsApp else { throw LaunchError.noClient(missingWindowsApp) }
+                try rdpViaWindowsApp(machine, app: windowsApp)
+            case nil:
                 throw LaunchError.noClient(missingWindowsApp + "\n\n" + missingFreeRDP)
             }
         }
@@ -252,7 +281,7 @@ enum Launcher {
                 args.append("/u:\(user)")
             }
         }
-        if let password = Keychain.password(for: machine.id) {
+        if let password = savedPassword(machine.id), !password.isEmpty {
             args.append("/p:\(password)")
         }
         let process = Process()

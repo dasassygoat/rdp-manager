@@ -184,6 +184,9 @@ another profile name, `SKIP_NOTARIZE=1` to sign without submitting.
 
 * **Add a machine** with ⌘N. Name, hostname (or IP), type, and how to connect are enough.
   Username and password are optional; the password goes into this Mac's Keychain only.
+  A saved password sends that machine's RDP connections through FreeRDP, which is the
+  only client that can be given one — Windows App on macOS cannot, and asks every
+  time. Machines with no password saved still go to Windows App when it is installed.
 * **Click a machine's name** in the list to connect with its primary method. Right-click
   for the other methods, Wake-on-LAN, copy IP, edit, and delete.
 * **Status** is checked every 30 seconds (Settings → General). A TCP connection to the
