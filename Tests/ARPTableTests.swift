@@ -37,20 +37,20 @@ final class ARPTableTests: XCTestCase {
     /// once per interface, link-local noise and the broadcast address.
     private var sample: [UInt8] {
         message(ip: "169.254.169.254", mac: nil)
-            + message(ip: "169.254.172.36", mac: [0x9C, 0xB6, 0xD0, 0xBC, 0x7F, 0x9F])
-            + message(ip: "192.168.1.1", mac: [0x6E, 0x63, 0xF8, 0x38, 0xD8, 0xA2],
+            + message(ip: "169.254.172.36", mac: [0x00, 0x00, 0x5E, 0x00, 0x53, 0x03])
+            + message(ip: "192.168.1.1", mac: [0x00, 0x00, 0x5E, 0x00, 0x53, 0x01],
                       interface: "en10")
-            + message(ip: "192.168.1.1", mac: [0x6E, 0x63, 0xF8, 0x38, 0xD8, 0xA2],
+            + message(ip: "192.168.1.1", mac: [0x00, 0x00, 0x5E, 0x00, 0x53, 0x01],
                       interface: "en1")
-            + message(ip: "192.168.1.51", mac: [0xA8, 0xB1, 0x3B, 0x20, 0x5C, 0xD9])
+            + message(ip: "192.168.1.51", mac: [0x00, 0x00, 0x5E, 0x00, 0x53, 0x02])
             + message(ip: "192.168.1.255", mac: [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
     }
 
     func testCompleteEntriesAreRead() {
         let table = ARPTable.macs(inRoutingMessages: sample)
-        XCTAssertEqual(table["192.168.1.1"], "6E:63:F8:38:D8:A2")
-        XCTAssertEqual(table["192.168.1.51"], "A8:B1:3B:20:5C:D9")
-        XCTAssertEqual(table["169.254.172.36"], "9C:B6:D0:BC:7F:9F")
+        XCTAssertEqual(table["192.168.1.1"], "00:00:5E:00:53:01")
+        XCTAssertEqual(table["192.168.1.51"], "00:00:5E:00:53:02")
+        XCTAssertEqual(table["169.254.172.36"], "00:00:5E:00:53:03")
     }
 
     func testIncompleteEntriesAreLeftOut() {
@@ -99,8 +99,8 @@ final class ARPTableTests: XCTestCase {
     // MARK: Normalising
 
     func testOctetsWithoutALeadingZeroArePaddedAndUppercased() {
-        XCTAssertEqual(ARPTable.normalize("0:1e:c2:3:4:5f"), "00:1E:C2:03:04:5F")
-        XCTAssertEqual(ARPTable.normalize("AC:84:C6:1A:2B:3C"), "AC:84:C6:1A:2B:3C")
+        XCTAssertEqual(ARPTable.normalize("0:0:5e:0:53:4"), "00:00:5E:00:53:04")
+        XCTAssertEqual(ARPTable.normalize("00:00:5E:00:53:05"), "00:00:5E:00:53:05")
     }
 
     func testThingsThatAreNotMACsAreRejected() {
@@ -118,7 +118,7 @@ final class ARPTableTests: XCTestCase {
     /// The normalised form has to be what Wake-on-LAN already accepts, or a discovered MAC
     /// would land in the field and then fail to send.
     func testNormalisedMACsAreUsableForWakeOnLAN() throws {
-        let mac = try XCTUnwrap(ARPTable.normalize("0:1e:c2:3:4:5f"))
-        XCTAssertEqual(WakeOnLAN.macBytes(mac), [0x00, 0x1E, 0xC2, 0x03, 0x04, 0x5F])
+        let mac = try XCTUnwrap(ARPTable.normalize("0:0:5e:0:53:4"))
+        XCTAssertEqual(WakeOnLAN.macBytes(mac), [0x00, 0x00, 0x5E, 0x00, 0x53, 0x04])
     }
 }

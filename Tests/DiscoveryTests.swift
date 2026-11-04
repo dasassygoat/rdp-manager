@@ -97,12 +97,12 @@ final class DiscoveryTests: XCTestCase {
 
     func testAddedMachineCarriesWhatTheSweepLearned() {
         let found = host("192.168.1.20", ports: [3389], hostname: "sales-pc.local",
-                         mac: "00:1E:C2:03:04:5F")
+                         mac: "00:00:5E:00:53:04")
         let machine = found.asMachine()
         XCTAssertEqual(machine.name, "sales-pc")
         XCTAssertEqual(machine.hostname, "sales-pc.local")
         XCTAssertEqual(machine.lastIP, "192.168.1.20")
-        XCTAssertEqual(machine.macAddress, "00:1E:C2:03:04:5F")
+        XCTAssertEqual(machine.macAddress, "00:00:5E:00:53:04")
         XCTAssertEqual(machine.kind, .windows)
         XCTAssertEqual(machine.primary, .rdp)
         XCTAssertEqual(machine.connectHost, "192.168.1.20")
@@ -111,7 +111,7 @@ final class DiscoveryTests: XCTestCase {
     }
 
     func testASilentHostIsNotRecordedAsSeen() {
-        XCTAssertNil(host("192.168.1.21", mac: "00:1E:C2:03:04:5F").asMachine().lastSeen)
+        XCTAssertNil(host("192.168.1.21", mac: "00:00:5E:00:53:04").asMachine().lastSeen)
     }
 
     func testAMachineWithNoHostnameFallsBackToTheAddress() {
@@ -122,7 +122,7 @@ final class DiscoveryTests: XCTestCase {
 
     /// A discovered MAC has to be one Wake-on-LAN will accept, end to end.
     func testADiscoveredMACIsImmediatelyUsableForWake() throws {
-        let mac = try XCTUnwrap(ARPTable.normalize("a8:b1:3b:20:5c:d9"))
+        let mac = try XCTUnwrap(ARPTable.normalize("00:00:5e:00:53:02"))
         let machine = host("192.168.1.23", ports: [3389], mac: mac).asMachine()
         XCTAssertNotNil(WakeOnLAN.macBytes(machine.macAddress))
         XCTAssertEqual(machine.broadcastAddress, "192.168.1.255")
@@ -151,19 +151,19 @@ final class DiscoveryMatchTests: StoreTestCase {
     func testAMachineThatChangedAddressIsMatchedByItsMAC() {
         let store = makeStore()
         var machine = makeMachine("reception", lastIP: "192.168.1.10")
-        machine.macAddress = "00:1E:C2:03:04:5F"
+        machine.macAddress = "00:00:5E:00:53:04"
         store.add(machine)
 
-        let moved = host("192.168.1.77", mac: "00:1E:C2:03:04:5F")
+        let moved = host("192.168.1.77", mac: "00:00:5E:00:53:04")
         XCTAssertEqual(Discovery(store: store).match(moved)?.name, "reception")
     }
 
     func testMACMatchingIgnoresFormatting() {
         let store = makeStore()
         var machine = makeMachine("reception")
-        machine.macAddress = "00-1e-c2-03-04-5f"
+        machine.macAddress = "00-00-5e-00-53-04"
         store.add(machine)
-        XCTAssertEqual(Discovery(store: store).match(host("10.1.1.1", mac: "00:1E:C2:03:04:5F"))?.name,
+        XCTAssertEqual(Discovery(store: store).match(host("10.1.1.1", mac: "00:00:5E:00:53:04"))?.name,
                        "reception")
     }
 
@@ -172,7 +172,7 @@ final class DiscoveryMatchTests: StoreTestCase {
         let store = makeStore()
         store.add(makeMachine("reception", lastIP: "192.168.1.10"))
         XCTAssertNil(Discovery(store: store).match(host("192.168.1.99", mac: nil)))
-        XCTAssertNil(Discovery(store: store).match(host("192.168.1.99", mac: "00:1E:C2:03:04:5F")))
+        XCTAssertNil(Discovery(store: store).match(host("192.168.1.99", mac: "00:00:5E:00:53:04")))
     }
 
     func testAHostIsMatchedByHostnameWhenTheAddressIsNew() {
