@@ -71,6 +71,9 @@ addresses rather than sweeping something enormous.
 when it last looked, and a switch to stop it looking on its own. Left on, it checks at
 launch and at most once a day.
 
+What a check finds opens in a window of its own, so asking from the menu works whether or
+not the machine list is open — the app keeps running with its windows closed.
+
 A new version is offered with its release notes and installed only when you click Update;
 you can skip a version, and a later one is still offered. The download is checked before
 anything is replaced: it must carry the same bundle identifier, be signed by the same

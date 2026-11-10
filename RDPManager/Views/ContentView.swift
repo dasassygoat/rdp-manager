@@ -6,6 +6,7 @@ enum SidebarItem: Hashable {
 }
 
 struct ContentView: View {
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var store: MachineStore
     @EnvironmentObject private var monitor: Monitor
     @State private var sidebar: SidebarItem? = .all
@@ -83,8 +84,13 @@ struct ContentView: View {
         .sheet(isPresented: $discovering) {
             DiscoveryView(store: store)
         }
-        .sheet(isPresented: $updater.isPresenting) {
-            UpdateView(updater: updater)
+        // The update answer gets a window of its own rather than a sheet here, so that
+        // a check made with this window closed still has somewhere to appear. This view
+        // only makes sure the updater knows how to open it, since opening a window needs
+        // the environment.
+        .onAppear {
+            let openWindow = self.openWindow
+            Updater.shared.prepareToPresent = { openWindow(id: RDPManagerApp.updateWindowID) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .newMachineRequested)) { _ in
             creating = true

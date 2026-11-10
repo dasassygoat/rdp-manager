@@ -3,12 +3,17 @@ import UserNotifications
 
 @main
 struct RDPManagerApp: App {
+    static let mainWindowID = "main"
+    static let updateWindowID = "update"
+
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = MachineStore.shared
     @StateObject private var monitor = Monitor.shared
 
     var body: some Scene {
-        WindowGroup(id: "main") {
+        // A single window rather than a group: the app has one machine list, and
+        // reopening it has to bring the existing window back rather than add a second.
+        Window("RDP Manager", id: Self.mainWindowID) {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(monitor)
@@ -29,11 +34,16 @@ struct RDPManagerApp: App {
                 Button("Refresh Status") { monitor.refreshNow() }
                     .keyboardShortcut("r", modifiers: .command)
             }
-            CommandGroup(after: .appInfo) {
-                Button("Check for Updates…") { Updater.shared.check(userInitiated: true) }
-                Button("Install Command Line Tool…") { installCommandLineTool() }
-            }
+            UpdateCommands()
         }
+
+        // The update answer lives in a window of its own rather than a sheet on the main
+        // one. This app keeps running after its last window is closed, and a sheet has
+        // nowhere to appear in that state: the check would finish and show nothing.
+        Window("Software Update", id: Self.updateWindowID) {
+            UpdateWindowView()
+        }
+        .windowResizability(.contentSize)
 
         Settings {
             SettingsView()
@@ -44,6 +54,30 @@ struct RDPManagerApp: App {
         MenuBarExtra("RDP Manager", systemImage: "rectangle.connected.to.line.below") {
             MenuBarView()
                 .environmentObject(store)
+        }
+    }
+}
+
+/// The menu items that need a window to report into.
+///
+/// Separate from `RDPManagerApp` only because `openWindow` comes from the environment,
+/// which an `App` cannot read but a `Commands` can. Checking for updates with every
+/// window closed used to find the update and then show nothing, because the sheet it
+/// raises belongs to the main window.
+struct UpdateCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") {
+                let openWindow = self.openWindow
+                Updater.shared.prepareToPresent = {
+                    NSApp.activate(ignoringOtherApps: true)
+                    openWindow(id: RDPManagerApp.updateWindowID)
+                }
+                Updater.shared.check(userInitiated: true)
+            }
+            Button("Install Command Line Tool…") { installCommandLineTool() }
         }
     }
 }

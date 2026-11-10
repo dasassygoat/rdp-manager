@@ -52,9 +52,25 @@ final class Updater: ObservableObject {
     /// The release being installed, so the sheet can still name it once `state` has moved
     /// on from `.available`.
     @Published private(set) var pending: GitHubRelease?
-    /// Raised when a check the user did not ask for found something, so the window can
-    /// show it. A silent check that finds nothing never interrupts.
+    /// Whether there is an answer on screen. The update window follows this, and the
+    /// buttons in it lower it to close. A silent check that finds nothing never
+    /// interrupts, so it never raises this.
     @Published var isPresenting = false
+
+    /// Opens the window the answer appears in, called just before raising it.
+    ///
+    /// This app deliberately keeps running with every window closed — see
+    /// `applicationShouldTerminateAfterLastWindowClosed`. The answer used to be a sheet on
+    /// the main window, which in that state had nothing to attach to: choosing "Check for
+    /// Updates…" from the menu ran the whole check, found the update, and showed nothing
+    /// at all. A closure because opening a window is the scene's business, not this
+    /// service's.
+    var prepareToPresent: () -> Void = {}
+
+    /// What this copy reports itself to be. A seam for the same reason as `fetch`: the
+    /// tests are compiled without an app bundle around them, so there is no real version
+    /// for them to be newer or older than.
+    var runningVersion: () -> AppVersion? = { AppVersion.running }
 
     /// Replaced in tests, which must not reach the network.
     var fetch: (URL) async throws -> Data = { url in
@@ -131,9 +147,9 @@ final class Updater: ObservableObject {
     }
 
     private func runCheck(userInitiated: Bool) async {
-        guard let current = AppVersion.running else {
+        guard let current = runningVersion() else {
             state = .failed(Failure.noVersion.localizedDescription)
-            if userInitiated { isPresenting = true }
+            if userInitiated { present() }
             return
         }
         state = .checking
@@ -145,15 +161,15 @@ final class Updater: ObservableObject {
             if let newer = GitHubRelease.newest(in: releases, newerThan: current,
                                                 skipping: skippedVersion) {
                 state = .available(newer)
-                isPresenting = true
+                present()
             } else {
                 state = .upToDate
-                if userInitiated { isPresenting = true }
+                if userInitiated { present() }
             }
         } catch {
             state = .failed(error.localizedDescription)
             // A background check that cannot reach GitHub is not worth a dialog.
-            if userInitiated { isPresenting = true }
+            if userInitiated { present() }
         }
     }
 
@@ -168,6 +184,18 @@ final class Updater: ObservableObject {
         isPresenting = false
         if case .failed = state { state = .idle }
         if case .upToDate = state { state = .idle }
+    }
+
+    /// Waits for a check or install already under way. Only the tests need this; the app
+    /// follows `state` instead of waiting on anything.
+    func settle() async {
+        await task?.value
+    }
+
+    /// Shows whatever `state` now holds, opening somewhere to show it first.
+    private func present() {
+        prepareToPresent()
+        isPresenting = true
     }
 
     // MARK: Installing
@@ -210,7 +238,7 @@ final class Updater: ObservableObject {
             try? FileManager.default.removeItem(at: folder)
             pending = nil
             state = .failed(error.localizedDescription)
-            isPresenting = true
+            present()
         }
     }
 
