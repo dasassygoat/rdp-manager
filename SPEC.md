@@ -25,6 +25,7 @@ and connect with one click over RDP, VNC, SSH, or a web admin page.
 |---|---|
 | RDP via Windows App | App writes a temporary `.rdp` file (full address, username, display options) and opens it with Windows App. The password cannot be included: a `.rdp` file carries one in `password 51:b:` as a Windows DPAPI blob, and the Mac build has no code for that field, so Windows App asks every time. It remembers credentials only for connections created inside it, not for a file it is handed. |
 | RDP via FreeRDP | `xfreerdp /v:host /u:user /p:password` with the password pulled from the Keychain. Fully unattended. |
+| Session sound | Per machine: on the remote machine (the default), on this Mac, or not at all. One setting for both clients — `audiomode:i:` in the .rdp file and `/audio-mode:` on FreeRDP's command line take the same 0/1/2. Always passed to FreeRDP, which otherwise opens no audio channel while Windows App defaults to redirecting here. |
 | VNC | Opens `vnc://user:password@host` which launches the built-in Screen Sharing app. |
 | SSH | Writes a `.command` script holding the `ssh` command and opens it with the terminal chosen in Settings, which defaults to Warp when installed. With System default chosen, or no terminal found, opens `ssh://user@host` and lets macOS pick the app. |
 | Web | Opens the stored URL (defaults to `https://<ip>`). |

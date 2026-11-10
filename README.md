@@ -187,6 +187,9 @@ another profile name, `SKIP_NOTARIZE=1` to sign without submitting.
   A saved password sends that machine's RDP connections through FreeRDP, which is the
   only client that can be given one — Windows App on macOS cannot, and asks every
   time. Machines with no password saved still go to Windows App when it is installed.
+* **Sound** from an RDP session stays on the machine you connect to, which is the
+  default for every machine. Change it per machine in its editor to play on this Mac
+  instead, or not at all.
 * **Click a machine's name** in the list to connect with its primary method. Right-click
   for the other methods, Wake-on-LAN, copy IP, edit, and delete.
 * **Status** is checked every 30 seconds (Settings → General). A TCP connection to the

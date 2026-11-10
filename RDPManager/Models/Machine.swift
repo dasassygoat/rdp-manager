@@ -57,6 +57,41 @@ enum MachineKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Where a session's sound comes out.
+///
+/// Both clients take the same three numbers — `audiomode` in a .rdp file and
+/// `/audio-mode:` on FreeRDP's command line — so one setting covers either one.
+enum AudioMode: String, Codable, CaseIterable, Identifiable {
+    /// Left on the machine being connected to, which is the default: a server you are
+    /// administering should not start making noise on the desk you are sitting at.
+    case remote
+    /// Redirected down the connection and played here.
+    case thisMac
+    /// Played nowhere.
+    case off
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .remote: return "On the remote machine"
+        case .thisMac: return "On this Mac"
+        case .off: return "Don't play"
+        }
+    }
+
+    /// The number both clients understand. Stored as a name rather than this number so
+    /// the shared machine list stays readable and a renumbering could not silently
+    /// change what a machine does.
+    var rdpValue: Int {
+        switch self {
+        case .thisMac: return 0
+        case .remote: return 1
+        case .off: return 2
+        }
+    }
+}
+
 struct IPRecord: Codable, Hashable, Identifiable {
     var id: UUID
     var ip: String
@@ -80,6 +115,7 @@ struct Machine: Codable, Identifiable, Hashable {
     var tags: [String] = []
     var notes = ""
     var primary: ConnectionType = .rdp
+    var audio: AudioMode = .remote
     var username = ""
     var rdpPort = 3389
     var vncPort = 5900
@@ -105,6 +141,9 @@ struct Machine: Codable, Identifiable, Hashable {
         tags = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
         primary = try c.decodeIfPresent(ConnectionType.self, forKey: .primary) ?? kind.defaultConnection
+        // Absent in files written before this setting existed, and in files written
+        // by an older copy of the app on another Mac.
+        audio = try c.decodeIfPresent(AudioMode.self, forKey: .audio) ?? .remote
         username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
         rdpPort = try c.decodeIfPresent(Int.self, forKey: .rdpPort) ?? 3389
         vncPort = try c.decodeIfPresent(Int.self, forKey: .vncPort) ?? 5900

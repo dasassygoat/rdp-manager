@@ -46,6 +46,15 @@ struct MachineEditView: View {
                     TextField("MAC address", text: $machine.macAddress, prompt: Text("for Wake-on-LAN"))
                     TextField("Web admin URL", text: $machine.webURL, prompt: Text("https://… (defaults to the machine's IP)"))
                 }
+                Section("Sound") {
+                    Picker("Play sound", selection: $machine.audio) {
+                        ForEach(AudioMode.allCases) { Text($0.label).tag($0) }
+                    }
+                    Text("Applies to RDP. \"On this Mac\" sends the session's audio down "
+                         + "the connection to play here instead.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Section("Ports") {
                     TextField("RDP", value: $machine.rdpPort, format: .number)
                     TextField("VNC", value: $machine.vncPort, format: .number)

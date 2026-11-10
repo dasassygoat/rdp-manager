@@ -240,13 +240,15 @@ enum Launcher {
             .appendingPathComponent(safeFileName(machine.name) + ".rdp")
     }
 
-    private static func rdpViaWindowsApp(_ machine: Machine, app: URL) throws {
+    /// The .rdp file handed to Windows App. Separate from writing it so the tests can read
+    /// what a machine turns into without launching anything.
+    static func rdpFileContents(for machine: Machine) -> String {
         var lines = [
             "full address:s:\(machine.connectHost):\(machine.rdpPort)",
             "screen mode id:i:2",
             "use multimon:i:0",
             "session bpp:i:32",
-            "audiomode:i:0",
+            "audiomode:i:\(machine.audio.rdpValue)",
             "redirectclipboard:i:1",
             "authentication level:i:2",
             "prompt for credentials:i:0",
@@ -254,9 +256,13 @@ enum Launcher {
             "dynamic resolution:i:1",
         ]
         if !machine.username.isEmpty { lines.append("username:s:\(machine.username)") }
+        return lines.joined(separator: "\r\n")
+    }
+
+    private static func rdpViaWindowsApp(_ machine: Machine, app: URL) throws {
         let file = rdpFileURL(for: machine)
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try lines.joined(separator: "\r\n").write(to: file, atomically: true, encoding: .utf8)
+        try rdpFileContents(for: machine).write(to: file, atomically: true, encoding: .utf8)
         NSWorkspace.shared.open([file], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in
             if let error {
                 Task { @MainActor in AppAlerts.show("Could not open Windows App", error.localizedDescription) }
@@ -264,13 +270,18 @@ enum Launcher {
         }
     }
 
-    private static func rdpViaFreeRDP(_ machine: Machine, executable: URL) throws {
+    /// FreeRDP's command line for a machine, built apart from running it so the tests can
+    /// check what gets passed.
+    static func freeRDPArguments(for machine: Machine) -> [String] {
         var args = [
             "/v:\(machine.connectHost):\(machine.rdpPort)",
             "/cert:ignore",
             "/dynamic-resolution",
             "+clipboard",
             "/title:\(machine.name)",
+            // Spelled out rather than left to the default, so the two clients agree:
+            // unasked, FreeRDP opens no audio channel and Windows App redirects to here.
+            "/audio-mode:\(machine.audio.rdpValue)",
         ]
         if !machine.username.isEmpty {
             let user = machine.username
@@ -284,6 +295,11 @@ enum Launcher {
         if let password = savedPassword(machine.id), !password.isEmpty {
             args.append("/p:\(password)")
         }
+        return args
+    }
+
+    private static func rdpViaFreeRDP(_ machine: Machine, executable: URL) throws {
+        let args = freeRDPArguments(for: machine)
         let process = Process()
         process.executableURL = executable
         process.arguments = args
