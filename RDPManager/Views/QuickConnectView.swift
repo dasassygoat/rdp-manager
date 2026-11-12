@@ -9,12 +9,27 @@ struct QuickConnectView: View {
     @ObservedObject var store: MachineStore
     /// Closing is the panel's business, not a scene's — see `QuickConnectPanel`.
     let close: () -> Void
+    /// How tall the panel should be for what is on show. Filtering thirty machines down to
+    /// one should leave a box the size of one machine, not the same box with a gap in it.
+    var resize: (CGFloat) -> Void = { _ in }
     @State private var query = ""
     @State private var selection = 0
     @FocusState private var focused: Bool
 
     private var results: [QuickConnectMatch.Result] {
         QuickConnectMatch.rank(store.machines, query: query)
+    }
+
+    /// The field, and then either the rows or the line saying there are none. Worked out
+    /// rather than measured: the parts are all fixed heights, and asking SwiftUI to report
+    /// its size back up to an NSPanel is a lot of machinery for an answer already known.
+    private static let fieldHeight: CGFloat = 57
+    private static let rowHeight: CGFloat = 44
+    private static let visibleRows = 7
+
+    private var wantedHeight: CGFloat {
+        guard !results.isEmpty else { return Self.fieldHeight + 44 }
+        return Self.fieldHeight + CGFloat(min(results.count, Self.visibleRows)) * Self.rowHeight
     }
 
     var body: some View {
@@ -44,7 +59,7 @@ struct QuickConnectView: View {
                             }
                         }
                     }
-                    .frame(height: min(CGFloat(results.count) * 44, 308))
+                    .frame(height: CGFloat(min(results.count, Self.visibleRows)) * Self.rowHeight)
                     .onChange(of: selection) { _, new in
                         withAnimation(.linear(duration: 0.08)) { scroll.scrollTo(new) }
                     }
@@ -52,7 +67,11 @@ struct QuickConnectView: View {
             }
         }
         .frame(width: 460)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            resize(wantedHeight)
+        }
+        .onChange(of: results.count) { _, _ in resize(wantedHeight) }
         // Arrow keys move the selection; Return connects to it. Handled here rather than on
         // the field so they work wherever the focus happens to be.
         .onKeyPress(.upArrow) { move(-1) }
