@@ -507,6 +507,8 @@ enum AppAlerts {
 func connect(_ machine: Machine, via type: ConnectionType) {
     do {
         try Launcher.connect(machine, via: type)
+        // Only once it started. A session that could not launch is not one you were on.
+        ConnectionLog.shared.record(machine, via: type)
     } catch {
         AppAlerts.show("Could not connect to \(machine.name)", error.localizedDescription)
     }

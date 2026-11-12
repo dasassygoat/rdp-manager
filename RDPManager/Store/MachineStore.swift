@@ -92,6 +92,13 @@ final class MachineStore: ObservableObject {
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    /// Every tag in use, once each. Unlike groups a machine can carry several, so this is
+    /// the flattened set rather than one value per machine.
+    var tags: [String] {
+        Array(Set(machines.flatMap(\.tags).filter { !$0.isEmpty }))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
     func count(where state: OnlineState) -> Int {
         machines.filter { (statuses[$0.id]?.state ?? .unknown) == state }.count
     }

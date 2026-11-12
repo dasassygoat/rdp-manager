@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MachineDetailView: View {
     @EnvironmentObject private var store: MachineStore
+    @ObservedObject private var log = ConnectionLog.shared
     let machine: Machine
     let onEdit: (Machine) -> Void
 
@@ -18,6 +19,7 @@ struct MachineDetailView: View {
                         Text(machine.notes).textSelection(.enabled)
                     }
                 }
+                sessions
                 history
             }
             .padding(24)
@@ -118,7 +120,34 @@ struct MachineDetailView: View {
                 if let seen = machine.lastSeen ?? status.lastSeen {
                     row("Last seen online", seen.formatted(date: .abbreviated, time: .shortened))
                 }
+                if let last = log.lastConnection(to: machine.id) {
+                    row("Last connected",
+                        "\(last.at.formatted(date: .abbreviated, time: .shortened)) "
+                        + "· \(last.type.label)")
+                }
                 row("Added", machine.createdAt.formatted(date: .abbreviated, time: .omitted))
+            }
+        }
+    }
+
+    /// The sessions started from this Mac. Worth having for the same reason the IP history
+    /// is: the app knows when you were last on a machine and used to throw it away.
+    @ViewBuilder private var sessions: some View {
+        let entries = log.history(for: machine.id, limit: 20)
+        if !entries.isEmpty {
+            section("Recent Sessions") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Table(entries) {
+                        TableColumn("When") {
+                            Text($0.at.formatted(date: .abbreviated, time: .shortened))
+                        }
+                        TableColumn("With") { Text($0.type.label) }
+                    }
+                    .frame(height: min(CGFloat(entries.count) * 28 + 32, 200))
+                    Text("\(log.count(for: machine.id)) in all, recorded on this Mac only.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

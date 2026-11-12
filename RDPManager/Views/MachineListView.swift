@@ -22,6 +22,14 @@ struct MachineListView: View {
                 ContentUnavailableView.search
             }
         }
+        // Arrow keys already move the selection; this makes the obvious next keystroke do
+        // the obvious thing rather than leaving the mouse as the only way to connect.
+        .onKeyPress(.return) {
+            guard let id = selection, let machine = machines.first(where: { $0.id == id })
+            else { return .ignored }
+            connect(machine, via: machine.primary)
+            return .handled
+        }
         .navigationTitle("RDP Manager")
     }
 }
@@ -93,6 +101,10 @@ struct MachineActions: View {
         }
         Divider()
         Button("Edit…") { onEdit(machine) }
-        Button("Delete", role: .destructive) { store.remove(machine.id) }
+        Button("Delete", role: .destructive) {
+            store.remove(machine.id)
+            // Otherwise the log keeps a machine that no longer exists, and recents offers it.
+            ConnectionLog.shared.forget(machine.id)
+        }
     }
 }

@@ -34,6 +34,19 @@ struct RDPManagerApp: App {
                 Button("Refresh Status") { monitor.refreshNow() }
                     .keyboardShortcut("r", modifiers: .command)
             }
+            // The first nine machines in list order, so the shortcut for a given machine
+            // stays the same between launches.
+            CommandMenu("Connect") {
+                ForEach(Array(store.machines.prefix(9).enumerated()), id: \.element.id) { index, machine in
+                    Button("\(machine.name) (\(machine.primary.label))") {
+                        connect(machine, via: machine.primary)
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+                }
+                if store.machines.isEmpty {
+                    Button("No Machines Yet") {}.disabled(true)
+                }
+            }
             UpdateCommands()
         }
 
@@ -51,9 +64,13 @@ struct RDPManagerApp: App {
                 .environmentObject(monitor)
         }
 
-        MenuBarExtra("RDP Manager", systemImage: "rectangle.connected.to.line.below") {
+        MenuBarExtra {
             MenuBarView()
                 .environmentObject(store)
+        } label: {
+            // A view rather than a system image name, so the count of offline machines can
+            // appear beside it. A menu bar app whose icon never changes is only a menu.
+            MenuBarView.Icon(store: store)
         }
     }
 }

@@ -3,6 +3,7 @@ import SwiftUI
 enum SidebarItem: Hashable {
     case all, online, offline
     case group(String)
+    case tag(String)
 }
 
 struct ContentView: View {
@@ -25,6 +26,7 @@ struct ContentView: View {
             case .online: if state != .online { return false }
             case .offline: if state == .online { return false }
             case .group(let g): if machine.group != g { return false }
+            case .tag(let t): if !machine.tags.contains(t) { return false }
             }
             let needle = search.trimmingCharacters(in: .whitespaces).lowercased()
             guard !needle.isEmpty else { return true }
@@ -124,6 +126,18 @@ struct SidebarView: View {
                         Label(group, systemImage: "folder")
                             .badge(store.machines.filter { $0.group == group }.count)
                             .tag(SidebarItem.group(group))
+                    }
+                }
+            }
+            // Tags were editable and searchable but had nowhere to be clicked. A machine
+            // has one group and any number of tags, so this is the cross-cutting view of
+            // the list that groups cannot give.
+            if !store.tags.isEmpty {
+                Section("Tags") {
+                    ForEach(store.tags, id: \.self) { tag in
+                        Label(tag, systemImage: "tag")
+                            .badge(store.machines.filter { $0.tags.contains(tag) }.count)
+                            .tag(SidebarItem.tag(tag))
                     }
                 }
             }
