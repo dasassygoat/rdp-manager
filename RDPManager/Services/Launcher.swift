@@ -270,9 +270,23 @@ enum Launcher {
         }
     }
 
-    /// FreeRDP's command line for a machine, built apart from running it so the tests can
-    /// check what gets passed.
-    static func freeRDPArguments(for machine: Machine) -> [String] {
+    /// Everything FreeRDP is given for a machine: its command line, and whatever has to
+    /// reach it down standard input instead.
+    ///
+    /// The password used to be `/p:` on the command line, where it stayed in the process
+    /// arguments for as long as the session lasted — `ps` shows those to anything else
+    /// running as this user, so a saved password was readable by any other program on the
+    /// Mac. `/from-stdin` has FreeRDP ask for what it was not given on standard input,
+    /// which is a pipe between the two processes and appears nowhere else.
+    struct FreeRDPInvocation: Equatable {
+        var arguments: [String]
+        /// Fed to the process's standard input, in the order FreeRDP asks for it. Nil when
+        /// there is nothing to hand over and the command line says everything.
+        var standardInput: String?
+    }
+
+    /// Built apart from running it so the tests can check what gets passed.
+    static func freeRDPInvocation(for machine: Machine) -> FreeRDPInvocation {
         var args = [
             "/v:\(machine.connectHost):\(machine.rdpPort)",
             "/cert:ignore",
@@ -292,26 +306,54 @@ enum Launcher {
                 args.append("/u:\(user)")
             }
         }
-        if let password = savedPassword(machine.id), !password.isEmpty {
-            args.append("/p:\(password)")
+        // Only with a username to go with it. FreeRDP asks on stdin for each thing it is
+        // missing, in the order username, domain, password, so sending a password while the
+        // username is also absent would answer the wrong question with it. A saved password
+        // and no username is a half-filled machine either way: FreeRDP asks for both in its
+        // own window, as it did before any password was saved.
+        if let password = savedPassword(machine.id), !password.isEmpty,
+           !machine.username.isEmpty {
+            args.append("/from-stdin")
+            return FreeRDPInvocation(arguments: args, standardInput: password + "\n")
         }
-        return args
+        return FreeRDPInvocation(arguments: args, standardInput: nil)
+    }
+
+    /// Just the command line. Kept because most callers and tests only care about that, and
+    /// because it is the half that is safe to log.
+    static func freeRDPArguments(for machine: Machine) -> [String] {
+        freeRDPInvocation(for: machine).arguments
     }
 
     private static func rdpViaFreeRDP(_ machine: Machine, executable: URL) throws {
-        let args = freeRDPArguments(for: machine)
+        let invocation = freeRDPInvocation(for: machine)
         let process = Process()
         process.executableURL = executable
-        process.arguments = args
+        process.arguments = invocation.arguments
         if let modules = opensslModulesDirectory(forExecutableAt: executable) {
             var environment = ProcessInfo.processInfo.environment
             environment["OPENSSL_MODULES"] = modules.path
             process.environment = environment
         }
+
+        // The pipe has to be in place before the process starts, or FreeRDP reads this
+        // app's own standard input — which, launched from the Finder, is /dev/null, and the
+        // session would fail as though the password were wrong.
+        let input = invocation.standardInput.map { _ in Pipe() }
+        if let input { process.standardInput = input }
+
         do {
             try process.run()
         } catch {
             throw LaunchError.failed("FreeRDP failed to start: \(error.localizedDescription)")
+        }
+
+        if let input, let credentials = invocation.standardInput {
+            // Written after the fork so a password longer than the pipe buffer cannot
+            // deadlock, and closed straight after so FreeRDP sees the end of it and does not
+            // sit waiting for a second line.
+            try? input.fileHandleForWriting.write(contentsOf: Data(credentials.utf8))
+            try? input.fileHandleForWriting.close()
         }
     }
 
