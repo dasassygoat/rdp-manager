@@ -16,6 +16,9 @@ final class Monitor: ObservableObject {
     private var loop: Task<Void, Never>?
     private var failures: [UUID: Int] = [:]
 
+    /// Injectable so a test does not write to this Mac's real log.
+    var uptime: UptimeLog = .shared
+
     struct ProbeResult {
         var ip: String?
         var reachable: Bool
@@ -118,11 +121,17 @@ final class Monitor: ObservableObject {
 
         if previous == .online && status.state == .offline {
             store.recordLastSeen(status.lastSeen ?? Date(), for: id)
+            uptime.record(id, up: false)
             Notifier.shared.post(.offline, title: "\(machine.name) went offline",
                                  body: "No response from \(machine.connectHost)")
         } else if previous == .offline && status.state == .online {
+            uptime.record(id, up: true)
             Notifier.shared.post(.backOnline, title: "\(machine.name) is back online",
                                  body: machine.connectHost)
+        } else if previous == .unknown && status.state == .online {
+            // The first sighting after launch. Worth recording so an outage that starts
+            // later has a beginning to be measured from.
+            uptime.record(id, up: true)
         }
         store.statuses[id] = status
     }

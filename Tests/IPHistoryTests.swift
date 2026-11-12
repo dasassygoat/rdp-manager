@@ -55,7 +55,7 @@ final class IPHistoryTests: StoreTestCase {
         XCTAssertEqual(history.first?.ip, "10.0.0.50", "the oldest entries should be the ones dropped")
     }
 
-    func testRecordingAnAddressBumpsModifiedAt() throws {
+    func testRecordingAnAddressIsNotAnEdit() throws {
         let store = makeStore()
         store.add(makeMachine("alpha", modifiedAt: Date() - 3600))
         let id = store.machines[0].id
@@ -63,8 +63,15 @@ final class IPHistoryTests: StoreTestCase {
 
         store.recordIP("192.168.1.10", for: id)
 
-        XCTAssertGreaterThan(store.machine(id)!.modifiedAt, before,
-                             "another Mac must see this as the newer copy")
+        // This used to bump modifiedAt so other Macs would take this copy as the newer one.
+        // That made every Mac's polling an edit, and since they all watch the same machines,
+        // whichever happened to poll last won the next merge and carried its own stale
+        // settings over everyone else's work. The address is still saved; the merge keeps
+        // sightings from both sides without needing this record to look newer.
+        XCTAssertEqual(store.machine(id)!.modifiedAt, before)
+        XCTAssertEqual(store.machine(id)!.lastIP, "192.168.1.10")
+        XCTAssertEqual(try readFromDisk().first?.lastIP, "192.168.1.10",
+                       "and it still reaches the other Macs")
     }
 
     func testHistorySurvivesSaveAndLoad() throws {

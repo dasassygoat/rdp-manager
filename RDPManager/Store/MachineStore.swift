@@ -142,6 +142,11 @@ final class MachineStore: ObservableObject {
     }
 
     /// Records a newly resolved IP. Returns true when it differs from the last known one.
+    ///
+    /// Deliberately does not touch `modifiedAt`. These are observations, not edits: every
+    /// Mac watching the same machine notices the same address change, and if each sighting
+    /// counted as an edit then the Mac that polled most recently would win every merge and
+    /// carry its own stale copy of the settings over everyone else's work.
     @discardableResult
     func recordIP(_ ip: String, for id: UUID) -> Bool {
         guard let i = machines.firstIndex(where: { $0.id == id }) else { return false }
@@ -151,15 +156,14 @@ final class MachineStore: ObservableObject {
         if machines[i].ipHistory.count > 200 {
             machines[i].ipHistory.removeFirst(machines[i].ipHistory.count - 200)
         }
-        machines[i].modifiedAt = Date()
         save()
         return true
     }
 
+    /// Also an observation rather than an edit — see `recordIP`.
     func recordLastSeen(_ date: Date, for id: UUID) {
         guard let i = machines.firstIndex(where: { $0.id == id }) else { return }
         machines[i].lastSeen = date
-        machines[i].modifiedAt = Date()
         save()
     }
 

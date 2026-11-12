@@ -105,8 +105,9 @@ struct MachineActions: View {
         Button("Edit…") { onEdit(machine) }
         Button("Delete", role: .destructive) {
             store.remove(machine.id)
-            // Otherwise the log keeps a machine that no longer exists, and recents offers it.
+            // Otherwise the logs keep a machine that no longer exists, and recents offers it.
             ConnectionLog.shared.forget(machine.id)
+            UptimeLog.shared.forget(machine.id)
         }
     }
 }

@@ -4,6 +4,7 @@ struct MachineDetailView: View {
     @EnvironmentObject private var store: MachineStore
     @ObservedObject private var log = ConnectionLog.shared
     @ObservedObject private var waking = WakeSession.shared
+    @ObservedObject private var uptime = UptimeLog.shared
     let machine: Machine
     let onEdit: (Machine) -> Void
 
@@ -20,6 +21,7 @@ struct MachineDetailView: View {
                         Text(machine.notes).textSelection(.enabled)
                     }
                 }
+                availability
                 sessions
                 history
             }
@@ -149,6 +151,61 @@ struct MachineDetailView: View {
                 row("Added", machine.createdAt.formatted(date: .abbreviated, time: .omitted))
             }
         }
+    }
+
+    /// What the poller has been seeing. It worked all of this out every thirty seconds and
+    /// used to keep only the latest sighting.
+    @ViewBuilder private var availability: some View {
+        let week = Date().addingTimeInterval(-7 * 24 * 3600)
+        let outages = uptime.outages(for: machine.id, since: week)
+        if !outages.isEmpty {
+            section("Availability") {
+                VStack(alignment: .leading, spacing: 8) {
+                    let summary = uptime.downtime(for: machine.id, since: week)
+                    HStack(spacing: 6) {
+                        Text(Self.outageSummary(summary))
+                        if let share = uptime.availability(for: machine.id, since: week) {
+                            Text("· \(share * 100, specifier: "%.1f")% reachable")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.callout)
+                    Table(outages) {
+                        TableColumn("Went down") {
+                            Text($0.began.formatted(date: .abbreviated, time: .shortened))
+                        }
+                        TableColumn("Came back") { outage in
+                            Text(outage.ended?.formatted(date: .abbreviated, time: .shortened)
+                                 ?? "still down")
+                        }
+                        TableColumn("For") { outage in
+                            Text(outage.duration.map(Self.describe) ?? "—")
+                        }
+                    }
+                    .frame(height: min(CGFloat(outages.count) * 28 + 32, 200))
+                    Text("Seen from this Mac over the last seven days.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private static func outageSummary(_ summary: (count: Int, total: TimeInterval)) -> String {
+        switch summary.count {
+        case 0: return "No outages in the last seven days"
+        case 1: return "One outage, \(describe(summary.total))"
+        default: return "\(summary.count) outages, \(describe(summary.total)) in all"
+        }
+    }
+
+    private static func describe(_ seconds: TimeInterval) -> String {
+        let minutes = Int(seconds.rounded() / 60)
+        if minutes < 1 { return "under a minute" }
+        if minutes < 60 { return "\(minutes) min" }
+        let hours = minutes / 60
+        let rest = minutes % 60
+        return rest == 0 ? "\(hours) h" : "\(hours) h \(rest) min"
     }
 
     /// The sessions started from this Mac. Worth having for the same reason the IP history

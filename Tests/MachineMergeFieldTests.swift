@@ -246,3 +246,52 @@ final class MachineMergeFieldTests: StoreTestCase {
         XCTAssertEqual(store.machines.map(\.name), ["shop-pc"])
     }
 }
+
+/// Polling used to count as editing, which let the Mac that polled most recently win every
+/// merge and carry its own stale settings over everyone else's work.
+@MainActor
+final class ObservationsAreNotEditsTests: StoreTestCase {
+
+    func testRecordingAnIPIsNotAnEdit() {
+        let store = makeStore()
+        store.add(makeMachine("shop-pc"))
+        let before = store.machines[0].modifiedAt
+
+        store.recordIP("192.168.1.55", for: store.machines[0].id)
+
+        XCTAssertEqual(store.machines[0].lastIP, "192.168.1.55", "it is still recorded")
+        XCTAssertEqual(store.machines[0].modifiedAt, before,
+                       "but it does not make this Mac's copy look newer than anyone else's")
+    }
+
+    func testRecordingASightingIsNotAnEdit() {
+        let store = makeStore()
+        store.add(makeMachine("shop-pc"))
+        let before = store.machines[0].modifiedAt
+
+        store.recordLastSeen(Date(), for: store.machines[0].id)
+
+        XCTAssertNotNil(store.machines[0].lastSeen)
+        XCTAssertEqual(store.machines[0].modifiedAt, before)
+    }
+
+    func testPollingDoesNotLetThisMacOverwriteAnotherMacsEdit() throws {
+        let store = makeStore()
+        store.add(makeMachine("shop-pc"))
+
+        // Another Mac renames it.
+        var theirs = try readFromDisk()[0]
+        theirs.name = "front-desk-pc"
+        theirs.modifiedAt = Date().addingTimeInterval(5)
+
+        // This Mac notices a new address a moment later, which used to count as an edit and
+        // would then have won on timestamp.
+        store.recordIP("192.168.1.55", for: store.machines[0].id)
+
+        try writeToDisk([theirs])
+        store.reloadFromDisk()
+
+        XCTAssertEqual(store.machines[0].name, "front-desk-pc", "their edit stands")
+        XCTAssertEqual(store.machines[0].lastIP, "192.168.1.55", "and the sighting is kept")
+    }
+}
