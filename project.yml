@@ -47,6 +47,11 @@ targets:
         NSHumanReadableCopyright: ""
         NSLocalNetworkUsageDescription: RDP Manager checks whether the computers you added are online, scans this network when you ask it to find machines, and sends Wake-on-LAN packets.
         NSUserNotificationsUsageDescription: RDP Manager notifies you when a computer goes offline or changes its IP address.
+        # So `rdpm connect` can hand a machine to the app, which owns the clients, the
+        # Keychain and the one place that knows how each connection is launched.
+        CFBundleURLTypes:
+          - CFBundleURLName: RDP Manager
+            CFBundleURLSchemes: [rdpm]
     entitlements:
       path: RDPManager/RDPManager.entitlements
       properties:
@@ -82,6 +87,10 @@ targets:
     sources:
       - path: RDPManager/CLI
       - path: RDPManager/Models
+      # Waking is pure sockets and address arithmetic, so the command can do it itself
+      # rather than asking the app to.
+      - path: RDPManager/Services/WakeOnLAN.swift
+      - path: RDPManager/Services/NetworkScan.swift
     settings:
       base:
         PRODUCT_NAME: rdpm

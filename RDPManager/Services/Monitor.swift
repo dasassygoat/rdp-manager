@@ -25,6 +25,38 @@ final class Monitor: ObservableObject {
         var latencyMs: Double?
     }
 
+    /// What a cycle found worth telling the user about, gathered so that one event affecting
+    /// many machines is one notification rather than many.
+    ///
+    /// A switch going down used to mean twenty separate alerts with twenty sounds, arriving
+    /// at once. That is the moment the alerts matter most and the moment they become noise.
+    struct CycleReport {
+        var wentOffline: [Machine] = []
+        var cameBack: [Machine] = []
+        var changedIP: [(machine: Machine, from: String, to: String)] = []
+
+        var isEmpty: Bool {
+            wentOffline.isEmpty && cameBack.isEmpty && changedIP.isEmpty
+        }
+    }
+
+    /// One line for a group of machines that all did the same thing, naming their shared
+    /// group when they have one — a site-wide outage reads as a site, not a list.
+    static func summary(_ machines: [Machine], did what: String) -> (title: String, body: String) {
+        let names = machines.map(\.name).sorted()
+        if names.count == 1 {
+            return ("\(names[0]) \(what)", "")
+        }
+        let groups = Set(machines.map(\.group).filter { !$0.isEmpty })
+        let where_ = groups.count == 1 && groups.first != nil
+            && machines.allSatisfy { !$0.group.isEmpty }
+            ? " in \(groups.first!)" : ""
+        let listed = names.count > 6
+            ? names.prefix(6).joined(separator: ", ") + " and \(names.count - 6) more"
+            : names.joined(separator: ", ")
+        return ("\(names.count) machines\(where_) \(what)", listed)
+    }
+
     init(store: MachineStore) {
         self.store = store
     }
@@ -65,14 +97,16 @@ final class Monitor: ObservableObject {
             if store.statuses[machine.id] != nil { store.statuses[machine.id] = nil }
             failures[machine.id] = nil
         }
+        var report = CycleReport()
         await withTaskGroup(of: (UUID, ProbeResult).self) { group in
             for machine in machines {
                 group.addTask { (machine.id, await Self.probe(machine)) }
             }
             for await (id, result) in group {
-                apply(result, to: id)
+                apply(result, to: id, into: &report)
             }
         }
+        announce(report)
         lastCycle = Date()
     }
 
@@ -126,7 +160,39 @@ final class Monitor: ObservableObject {
         return ProbeResult(ip: resolved, reachable: false, latencyMs: nil)
     }
 
-    private func apply(_ result: ProbeResult, to id: UUID) {
+    /// Says what the cycle found, grouped by what happened rather than by machine.
+    private func announce(_ report: CycleReport) {
+        guard !report.isEmpty else { return }
+
+        if !report.wentOffline.isEmpty {
+            let (title, body) = Self.summary(report.wentOffline, did: "went offline")
+            Notifier.shared.post(.offline, title: title,
+                                 body: body.isEmpty
+                                 ? "No response from \(report.wentOffline[0].connectHost)"
+                                 : body)
+        }
+        if !report.cameBack.isEmpty {
+            let (title, body) = Self.summary(report.cameBack, did: "are back online")
+            Notifier.shared.post(.backOnline, title: title,
+                                 body: body.isEmpty ? report.cameBack[0].connectHost : body)
+        }
+        if report.changedIP.count == 1 {
+            let change = report.changedIP[0]
+            Notifier.shared.post(.ipChange,
+                                 title: "\(change.machine.name) changed IP address",
+                                 body: "\(change.from) is now \(change.to)")
+        } else if report.changedIP.count > 1 {
+            let (title, _) = Self.summary(report.changedIP.map(\.machine), did: "changed address")
+            Notifier.shared.post(.ipChange, title: title,
+                                 body: report.changedIP
+                                    .map { "\($0.machine.name): \($0.from) → \($0.to)" }
+                                    .sorted()
+                                    .prefix(6)
+                                    .joined(separator: "\n"))
+        }
+    }
+
+    private func apply(_ result: ProbeResult, to id: UUID, into report: inout CycleReport) {
         guard let machine = store.machine(id) else { return }
         var status = store.statuses[id] ?? MachineStatus()
         let previous = status.state
@@ -137,8 +203,7 @@ final class Monitor: ObservableObject {
         if let ip = result.ip {
             let before = machine.lastIP
             if store.recordIP(ip, for: id), let before {
-                Notifier.shared.post(.ipChange, title: "\(machine.name) changed IP address",
-                                     body: "\(before) is now \(ip)")
+                report.changedIP.append((machine, before, ip))
             }
         }
 
@@ -158,12 +223,10 @@ final class Monitor: ObservableObject {
         if previous == .online && status.state == .offline {
             store.recordLastSeen(status.lastSeen ?? Date(), for: id)
             uptime.record(id, up: false)
-            Notifier.shared.post(.offline, title: "\(machine.name) went offline",
-                                 body: "No response from \(machine.connectHost)")
+            report.wentOffline.append(machine)
         } else if previous == .offline && status.state == .online {
             uptime.record(id, up: true)
-            Notifier.shared.post(.backOnline, title: "\(machine.name) is back online",
-                                 body: machine.connectHost)
+            report.cameBack.append(machine)
         } else if previous == .unknown && status.state == .online {
             // The first sighting after launch. Worth recording so an outage that starts
             // later has a beginning to be measured from.

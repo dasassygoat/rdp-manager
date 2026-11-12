@@ -490,6 +490,72 @@ final class MachineStore: ObservableObject {
         try encoder.encode(document())
     }
 
+    /// What an import would do, so it can be said out loud before it is done. An import
+    /// replaces machines wholesale, and doing that to a shared list on the strength of
+    /// picking a file is how an afternoon disappears.
+    struct ImportPreview {
+        var added: [String] = []
+        var changed: [String] = []
+        var unchanged: [String] = []
+
+        var total: Int { added.count + changed.count + unchanged.count }
+
+        var summary: String {
+            var parts: [String] = []
+            if !added.isEmpty { parts.append("\(added.count) to add") }
+            if !changed.isEmpty { parts.append("\(changed.count) to replace") }
+            if !unchanged.isEmpty { parts.append("\(unchanged.count) unchanged") }
+            return parts.isEmpty ? "Nothing to import" : parts.joined(separator: ", ")
+        }
+    }
+
+    func previewImport(_ data: Data) throws -> ImportPreview {
+        let doc = try decoder.decode(StoreDocument.self, from: data)
+        var preview = ImportPreview()
+        for incoming in doc.machines {
+            if let mine = machines.first(where: { $0.id == incoming.id }) {
+                // Compared as encoded rather than as values: dates in the file are ISO 8601
+                // to the second, so a record that came from this very list reads back a
+                // fraction of a second different and would otherwise look changed.
+                if (try? encoder.encode(mine)) == (try? encoder.encode(incoming)) {
+                    preview.unchanged.append(incoming.name)
+                } else {
+                    preview.changed.append(
+                        mine.name == incoming.name ? mine.name : "\(mine.name) → \(incoming.name)")
+                }
+            } else {
+                preview.added.append(incoming.name)
+            }
+        }
+        return preview
+    }
+
+    /// Saved copies of the list, newest first.
+    func backups() -> [URL] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: backupDirectory.path))
+            ?? []
+        return names
+            .filter { $0.hasPrefix("machines-") && $0.hasSuffix(".json") }
+            .sorted(by: >)
+            .map { backupDirectory.appendingPathComponent($0) }
+    }
+
+    /// Puts a saved copy back. The current list is itself backed up on the way, so a restore
+    /// of the wrong one is no worse than the import that led to it.
+    func restore(from url: URL) throws {
+        let doc = try decoder.decode(StoreDocument.self, from: Data(contentsOf: url))
+        machines = doc.machines
+        credentials = doc.credentials
+        for stone in doc.deleted {
+            tombstones[stone.id] = max(tombstones[stone.id] ?? .distantPast, stone.at)
+        }
+        // A machine in the restored list is one you are asking to have back.
+        for machine in doc.machines { tombstones[machine.id] = nil }
+        sortMachines()
+        sortCredentials()
+        save()
+    }
+
     /// Imports machines from a JSON export. Existing machines with the same id are replaced.
     func importData(_ data: Data) throws -> Int {
         let doc = try decoder.decode(StoreDocument.self, from: data)

@@ -10,6 +10,9 @@ usage: rdpm <command> [name] [options]
 
 commands:
   ssh <name> [-- ssh args]   open an SSH session (replaces this process with ssh)
+  connect <name>             connect the way the machine is set up to
+  rdp|vnc|web <name>         connect with that specifically
+  wake <name>                send a Wake-on-LAN packet
   ip <name>                  print the last known IP address
   host <name>                print the address that would be connected to
   show <name>                print everything known about one machine
@@ -28,7 +31,12 @@ exit status:
 
 <name> matches a machine name or hostname: exactly, else by prefix, else by substring.
 
+connect, rdp, vnc and web hand the machine to RDP Manager, which owns the clients and the
+Keychain; ssh and wake are done here. The app is started if it is not already running.
+
 examples:
+  rdpm connect shop-pc
+  rdpm wake shop-pc
   rdpm ssh nas
   rdpm ssh nas -- -A -L 8080:localhost:80
   ssh "$(rdpm ip shop-pc)"
@@ -134,6 +142,25 @@ case "ssh":
     execvp("ssh", &pointers)
     fail("could not start ssh: \(String(cString: strerror(errno)))")
 
+case "connect", "rdp", "vnc", "web":
+    let machine = resolve(name)
+    let type: ConnectionType? = command == "connect" ? nil : ConnectionType(rawValue: command)
+    handOver(machine, via: type)
+
+case "wake":
+    let machine = resolve(name)
+    guard !machine.macAddress.isEmpty else {
+        fail("no MAC address recorded for \(machine.name), so there is nothing to wake")
+    }
+    do {
+        let directed = WakeOnLAN.directedBroadcast(for: machine.lastIP) ?? machine.broadcastAddress
+        try WakeOnLAN.send(mac: machine.macAddress, directedBroadcast: directed)
+        if !wantsJSON { print("wake packet sent to \(machine.name) (\(machine.macAddress))") }
+        else { printJSON(["name": machine.name, "mac": machine.macAddress, "sent": "true"]) }
+    } catch {
+        fail(error.localizedDescription)
+    }
+
 case "ip":
     let machine = resolve(name)
     guard let ip = machine.lastIP, !ip.isEmpty else {
@@ -159,6 +186,46 @@ default:
 }
 
 // MARK: - Helpers
+
+/// Asks the app to open the connection.
+///
+/// Launching a session needs the RDP client preference, the Keychain, the shared sign-ins
+/// and the rules about which client can be handed a password — all of which live in the
+/// app. Duplicating them here would mean two implementations that could disagree, so the
+/// command passes the machine's id over the app's URL scheme instead. The id, not the name,
+/// so a rename between the lookup here and the handling there cannot connect to the wrong
+/// machine.
+func handOver(_ machine: Machine, via type: ConnectionType?) {
+    var url = "rdpm://connect?machine=\(machine.id.uuidString)"
+    if let type { url += "&with=\(type.rawValue)" }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    process.arguments = [url]
+    let errors = Pipe()
+    process.standardError = errors
+    do {
+        try process.run()
+        let data = errors.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let detail = String(decoding: data, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            fail("RDP Manager could not be asked to connect"
+                 + (detail.isEmpty ? ". Is it installed?" : ": \(detail)"))
+        }
+    } catch {
+        fail("could not run open: \(error.localizedDescription)")
+    }
+    if wantsJSON {
+        printJSON(["name": machine.name,
+                   "with": type?.rawValue ?? machine.primary.rawValue,
+                   "handedTo": "RDP Manager"])
+    } else {
+        print("asked RDP Manager to connect to \(machine.name) "
+              + "with \(type?.label ?? machine.primary.label)")
+    }
+}
 
 func resolve(_ name: String?) -> Machine {
     guard let name, !name.isEmpty else { usageError("which machine?") }

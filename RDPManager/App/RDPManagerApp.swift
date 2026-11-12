@@ -142,6 +142,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         false
     }
 
+    /// `rdpm connect` arrives here.
+    ///
+    /// The command knows the machine list but not how a session is launched — the client
+    /// preference, the Keychain, the shared sign-ins and which client can be handed a
+    /// password all live in the app. So it sends an id and the app does the rest.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            guard url.scheme == "rdpm", url.host == "connect" else { continue }
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems ?? []
+            guard let raw = query.first(where: { $0.name == "machine" })?.value,
+                  let id = UUID(uuidString: raw),
+                  let machine = MachineStore.shared.machine(id) else { continue }
+            let requested = query.first(where: { $0.name == "with" })?.value
+                .flatMap(ConnectionType.init(rawValue:))
+            connect(machine, via: requested ?? machine.primary)
+        }
+    }
+
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,

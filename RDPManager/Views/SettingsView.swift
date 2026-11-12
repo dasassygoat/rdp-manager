@@ -99,6 +99,8 @@ struct StorageSettings: View {
                 HStack {
                     Button("Export…") { exportList() }
                     Button("Import…") { importList() }
+                    Button("Restore…") { restoreFromBackup() }
+                        .disabled(store.backups().isEmpty)
                     Button("Show Saved Copies") {
                         try? FileManager.default.createDirectory(
                             at: store.backupDirectory, withIntermediateDirectories: true)
@@ -162,10 +164,65 @@ struct StorageSettings: View {
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            let count = try store.importData(Data(contentsOf: url))
-            message = "Imported \(count) machines."
+            let data = try Data(contentsOf: url)
+            // An import replaces machines wholesale. Saying what it will do first is the
+            // difference between a mistake you notice and one you discover a week later.
+            let preview = try store.previewImport(data)
+            guard preview.total > 0 else {
+                message = "That file has no machines in it."
+                return
+            }
+            guard confirmImport(preview, from: url) else {
+                message = "Import cancelled."
+                return
+            }
+            let count = try store.importData(data)
+            message = "Imported \(count) machines. The list as it was is in Saved Copies."
         } catch {
             message = "Import failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func confirmImport(_ preview: MachineStore.ImportPreview, from url: URL) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Import \(preview.total) machines from \(url.lastPathComponent)?"
+        var detail = preview.summary
+        let names = (preview.added.map { "+ \($0)" } + preview.changed.map { "~ \($0)" })
+            .sorted()
+        if !names.isEmpty {
+            detail += "\n\n" + names.prefix(12).joined(separator: "\n")
+            if names.count > 12 { detail += "\n… and \(names.count - 12) more" }
+        }
+        detail += "\n\nThe list as it is now will be kept in Saved Copies, so this can be "
+            + "undone with Restore."
+        alert.informativeText = detail
+        alert.addButton(withTitle: "Import")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func restoreFromBackup() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.directoryURL = store.backupDirectory
+        panel.message = "Choose a saved copy of the machine list to go back to."
+        panel.prompt = "Restore"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let preview = try store.previewImport(Data(contentsOf: url))
+            let alert = NSAlert()
+            alert.messageText = "Go back to \(url.lastPathComponent)?"
+            alert.informativeText =
+                "This replaces the list with that copy — \(preview.total) machines. The list "
+                + "as it is now is kept, so this too can be undone."
+            alert.addButton(withTitle: "Restore")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            try store.restore(from: url)
+            message = "Restored \(preview.total) machines from \(url.lastPathComponent)."
+        } catch {
+            message = "Could not restore: \(error.localizedDescription)"
         }
     }
 }
