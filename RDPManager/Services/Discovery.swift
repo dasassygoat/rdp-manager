@@ -41,6 +41,33 @@ final class Discovery: ObservableObject {
         /// app knows what to do with.
         var isSilent: Bool { openPorts.isEmpty }
 
+        /// How this host stands against the list, which is what makes a sweep a
+        /// reconciliation rather than only a way to add machines.
+        enum Standing: Equatable {
+            /// Not in the list at all. On a network you administer, worth a look.
+            case unknown
+            /// In the list, at the address the list already has.
+            case known
+            /// In the list, but somewhere else now. The address on file is stale.
+            case moved(from: String?)
+        }
+
+        var standing: Standing {
+            guard let existing else { return .unknown }
+            guard let known = existing.lastIP, known == ip else {
+                return .moved(from: existing.lastIP)
+            }
+            return .known
+        }
+
+        /// Ports answering that are not the one this machine is set up to be reached on.
+        /// A machine recorded as RDP that has started answering on 22 and 80 is worth
+        /// knowing about; it is not necessarily wrong, but it is a change.
+        var unexpectedPorts: Set<Int> {
+            guard let existing else { return [] }
+            return openPorts.subtracting([existing.port(for: existing.primary)])
+        }
+
         var kind: MachineKind {
             if openPorts.contains(3389) { return .windows }
             if openPorts.contains(5900) { return .mac }
@@ -98,6 +125,8 @@ final class Discovery: ObservableObject {
     /// A silently missing MAC would look like the network simply had none.
     @Published private(set) var macsAvailable = true
     /// Machines already in the list that this sweep gave a MAC they were missing.
+    /// What this sweep covered, so "did not answer" can be told from "was not looked at".
+    @Published private(set) var sweptAddresses: Set<String> = []
     @Published private(set) var backfilled = 0
     @Published var error: String?
 
@@ -195,6 +224,8 @@ final class Discovery: ObservableObject {
 
         if Task.isCancelled { return }
 
+        sweptAddresses = Set(addresses)
+
         // Read the cache only now: the probes above are what populated it.
         let arp = ARPTable.current()
         macsAvailable = !arp.isEmpty
@@ -249,6 +280,62 @@ final class Discovery: ObservableObject {
             }) { return byName }
         }
         return nil
+    }
+
+    /// Lets a test set what a sweep found without a network to sweep.
+    func setHostsForTesting(_ found: [Host]) {
+        hosts = found
+    }
+
+    // MARK: - Reconciliation
+
+    /// Hosts that answered and are not in the list.
+    var unknownHosts: [Host] {
+        hosts.filter { $0.standing == .unknown }
+            .sorted { (IPv4Subnet.parse($0.ip) ?? 0) < (IPv4Subnet.parse($1.ip) ?? 0) }
+    }
+
+    /// Machines the sweep found somewhere other than where the list says they are.
+    var movedHosts: [Host] {
+        hosts.filter {
+            if case .moved = $0.standing { return true }
+            return false
+        }
+    }
+
+    /// Hosts answering on something other than the port their machine is set up for.
+    var changedHosts: [Host] {
+        hosts.filter { $0.existing != nil && !$0.unexpectedPorts.isEmpty }
+    }
+
+    /// Machines the list has at an address inside the swept range that did not answer.
+    ///
+    /// Only machines whose recorded address was actually in the range: a machine at another
+    /// site, or one with no address yet, has not gone missing just because it was not part
+    /// of this sweep.
+    func unseenMachines(in addresses: Set<String>) -> [Machine] {
+        let answered = Set(hosts.map(\.ip))
+        return store.machines.filter { machine in
+            guard let ip = machine.lastIP, !ip.isEmpty else { return false }
+            return addresses.contains(ip) && !answered.contains(ip)
+        }
+    }
+
+    /// Writes the new addresses of machines that moved. Recorded as a sighting rather than
+    /// an edit, which is what it is — see `MachineStore.recordIP`.
+    @discardableResult
+    func applyMoves() -> Int {
+        var updated = 0
+        for host in movedHosts {
+            guard let machine = host.existing else { continue }
+            if store.recordIP(host.ip, for: machine.id) { updated += 1 }
+        }
+        hosts = hosts.map { host in
+            var refreshed = host
+            refreshed.existing = match(host)
+            return refreshed
+        }
+        return updated
     }
 
     func add(_ hosts: [Host]) {

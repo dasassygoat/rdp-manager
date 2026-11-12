@@ -61,20 +61,77 @@ struct DiscoveryView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                reconciliation
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// What the sweep found out about machines already in the list. A sweep used to be only
+    /// a way to add machines, and it already knew all of this.
+    @ViewBuilder private var reconciliation: some View {
+        let moved = discovery.movedHosts
+        let changed = discovery.changedHosts
+        let unseen = discovery.unseenMachines(in: discovery.sweptAddresses)
+
+        if !moved.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label(movedText(moved), systemImage: "arrow.triangle.swap")
+                    .font(.caption)
+                Spacer()
+                Button("Update Addresses") { discovery.applyMoves() }
+                    .controlSize(.small)
+            }
+        }
+        if !changed.isEmpty {
+            Label(changedText(changed), systemImage: "bolt.horizontal")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        if !unseen.isEmpty {
+            Label(unseenText(unseen), systemImage: "questionmark.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func movedText(_ moved: [Discovery.Host]) -> String {
+        let names = moved.compactMap { host -> String? in
+            guard let machine = host.existing else { return nil }
+            return "\(machine.name) is at \(host.ip)"
+        }
+        return names.count == 1
+            ? names[0] + ", not where the list says"
+            : "\(names.count) machines have moved: " + names.prefix(3).joined(separator: ", ")
+            + (names.count > 3 ? "…" : "")
+    }
+
+    private func changedText(_ changed: [Discovery.Host]) -> String {
+        let bits = changed.compactMap { host -> String? in
+            guard let machine = host.existing else { return nil }
+            let ports = host.unexpectedPorts.sorted().map(String.init).joined(separator: ", ")
+            return "\(machine.name) also answers on \(ports)"
+        }
+        return bits.prefix(3).joined(separator: "; ") + (bits.count > 3 ? "…" : "")
+    }
+
+    private func unseenText(_ unseen: [Machine]) -> String {
+        let names = unseen.map(\.name).sorted()
+        return names.count == 1
+            ? "\(names[0]) is in your list at an address on this network but did not answer."
+            : "\(names.count) machines in your list are on this network but did not answer: "
+            + names.prefix(4).joined(separator: ", ") + (names.count > 4 ? "…" : "")
+    }
+
     private var summary: String {
-        let new = discovery.newHosts.count
-        let known = discovery.hosts.count - new
+        let known = discovery.hosts.count - discovery.unknownHosts.count
         guard discovery.total > 0 else { return "Ready to scan." }
         if discovery.hosts.isEmpty {
             return "Nothing answered on \(discovery.subnet?.description ?? "the network")."
         }
-        var text = "\(new) new \(new == 1 ? "machine" : "machines")"
+        let unknown = discovery.unknownHosts.count
+        var text = "\(unknown) new \(unknown == 1 ? "machine" : "machines")"
         if known > 0 { text += ", \(known) already in your list" }
         text += " on \(discovery.subnet?.description ?? "the network")."
         // Worth saying: the list changed without the user asking for anything.
