@@ -8,6 +8,8 @@ final class MachineStore: ObservableObject {
     static let shared = MachineStore()
 
     @Published private(set) var machines: [Machine] = []
+    /// Shared sign-ins, by name. The passwords are not here — see `CredentialSet`.
+    @Published private(set) var credentials: [CredentialSet] = []
     @Published var statuses: [UUID: MachineStatus] = [:]
     @Published private(set) var storeURL: URL
     @Published var lastError: String?
@@ -96,6 +98,15 @@ final class MachineStore: ObservableObject {
         machines.first { $0.id == id }
     }
 
+    func credential(_ id: UUID) -> CredentialSet? {
+        credentials.first { $0.id == id }
+    }
+
+    /// How many machines sign in with a given set, for the UI to say what a delete affects.
+    func machineCount(usingCredential id: UUID) -> Int {
+        machines.count { $0.credentialID == id }
+    }
+
     var groups: [String] {
         Array(Set(machines.map(\.group).filter { !$0.isEmpty }))
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
@@ -167,6 +178,45 @@ final class MachineStore: ObservableObject {
         save()
     }
 
+    // MARK: - Shared sign-ins
+
+    func addCredential(_ set: CredentialSet, password: String) {
+        var c = set
+        c.modifiedAt = Date()
+        credentials.append(c)
+        sortCredentials()
+        Keychain.setPassword(password, for: c.id)
+        save()
+    }
+
+    /// `password` nil leaves the stored one alone, which is how the name can be edited
+    /// without having to retype the password.
+    func updateCredential(_ set: CredentialSet, password: String?) {
+        guard let i = credentials.firstIndex(where: { $0.id == set.id }) else { return }
+        var c = set
+        c.modifiedAt = Date()
+        credentials[i] = c
+        sortCredentials()
+        if let password { Keychain.setPassword(password, for: c.id) }
+        save()
+    }
+
+    /// Removes a set and puts every machine that used it back on its own sign-in, so no
+    /// machine is left pointing at something that no longer exists.
+    func removeCredential(_ id: UUID) {
+        credentials.removeAll { $0.id == id }
+        for i in machines.indices where machines[i].credentialID == id {
+            machines[i].credentialID = nil
+            machines[i].modifiedAt = Date()
+        }
+        Keychain.deletePassword(for: id)
+        save()
+    }
+
+    private func sortCredentials() {
+        credentials.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     private func sortMachines() {
         machines.sort {
             if $0.group != $1.group {
@@ -203,6 +253,7 @@ final class MachineStore: ObservableObject {
     private func load() {
         let fm = FileManager.default
 
+        credentials = []
         guard fm.fileExists(atPath: storeURL.path) else {
             // No file yet. At the default location that is simply a first run, and writing
             // one is the right thing. At a folder the user chose it may instead be a share
@@ -229,7 +280,9 @@ final class MachineStore: ObservableObject {
         do {
             let doc = try decoder.decode(StoreDocument.self, from: data)
             machines = doc.machines
+            credentials = doc.credentials
             sortMachines()
+            sortCredentials()
             lastSavedData = data
             setBaseline(to: doc.machines)
             tombstones = Dictionary(doc.deleted.map { ($0.id, $0.at) }, uniquingKeysWith: max)
@@ -374,11 +427,28 @@ final class MachineStore: ObservableObject {
             return false
         }
 
+        // Sign-ins have few fields and are edited rarely, so the whole record with the
+        // later timestamp wins rather than a field-by-field merge.
+        var mergedCredentials = incoming.credentials
+        for mine in credentials {
+            if let i = mergedCredentials.firstIndex(where: { $0.id == mine.id }) {
+                if mine.modifiedAt > mergedCredentials[i].modifiedAt {
+                    mergedCredentials[i] = mine
+                }
+            } else if mine.modifiedAt > fileDate {
+                // Added here since the file was written.
+                mergedCredentials.append(mine)
+            }
+        }
+
         let changedHere = merged != incoming.machines
+            || mergedCredentials != incoming.credentials
             || tombstones.count != incoming.deleted.count
         let mergedIDs = Set(merged.map(\.id))
         machines = merged
+        credentials = mergedCredentials
         sortMachines()
+        sortCredentials()
         for id in statuses.keys where !mergedIDs.contains(id) {
             statuses[id] = nil
         }
@@ -403,7 +473,8 @@ final class MachineStore: ObservableObject {
         StoreDocument(
             version: 1,
             machines: machines,
-            deleted: tombstones.map { Tombstone(id: $0.key, at: $0.value) }.sorted { $0.id.uuidString < $1.id.uuidString })
+            deleted: tombstones.map { Tombstone(id: $0.key, at: $0.value) }.sorted { $0.id.uuidString < $1.id.uuidString },
+            credentials: credentials)
     }
 
     private func setBaseline(to records: [Machine]) {

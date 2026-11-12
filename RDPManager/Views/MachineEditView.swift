@@ -28,16 +28,32 @@ struct MachineEditView: View {
                     }
                 }
                 Section("Login") {
-                    TextField("Username", text: $machine.username, prompt: Text("user"))
-                    TextField("Domain", text: $machine.domain,
-                              prompt: Text("optional, for a Windows domain"))
-                    SecureField("Password", text: $password)
-                    Text("The password stays in this Mac's Keychain. It is never written to the shared machine list.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Picker("Sign in with", selection: $machine.credentialID) {
+                        Text("This machine's own").tag(UUID?.none)
+                        ForEach(store.credentials) { set in
+                            Text(set.name.isEmpty ? set.qualifiedUsername : set.name)
+                                .tag(UUID?.some(set.id))
+                        }
+                    }
+                    if let id = machine.credentialID, let set = store.credential(id) {
+                        LabeledContent("Account", value: set.qualifiedUsername)
+                        Text("Shared with \(store.machineCount(usingCredential: id)) machine(s). "
+                             + "Change it in Settings \u{2192} Sign-ins; the password lives in "
+                             + "this Mac's Keychain under that sign-in.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        TextField("Username", text: $machine.username, prompt: Text("user"))
+                        TextField("Domain", text: $machine.domain,
+                                  prompt: Text("optional, for a Windows domain"))
+                        SecureField("Password", text: $password)
+                        Text("The password stays in this Mac's Keychain. It is never written to the shared machine list.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     // Worth saying here rather than only in Settings: this is where the
                     // password is typed, so this is where the surprise would land.
-                    if machine.primary == .rdp, !password.isEmpty {
+                    if machine.primary == .rdp, !password.isEmpty || machine.credentialID != nil {
                         Text(passwordRouteNote)
                             .font(.caption)
                             .foregroundStyle(.secondary)

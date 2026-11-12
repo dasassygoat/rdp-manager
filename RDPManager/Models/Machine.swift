@@ -117,6 +117,9 @@ struct Machine: Codable, Identifiable, Hashable {
     var primary: ConnectionType = .rdp
     var audio: AudioMode = .remote
     var username = ""
+    /// A shared sign-in to use instead of this machine's own username and password. Nil
+    /// means the machine has its own, which is how every machine worked before sets existed.
+    var credentialID: UUID?
     /// Windows domain for RDP, kept apart from the username so `DOMAIN\\user` does not have
     /// to be typed into a field that is otherwise just a name. A username that still carries
     /// a backslash is split as before, so nothing already saved has to be retyped.
@@ -160,6 +163,7 @@ struct Machine: Codable, Identifiable, Hashable {
         // by an older copy of the app on another Mac.
         audio = try c.decodeIfPresent(AudioMode.self, forKey: .audio) ?? .remote
         username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
+        credentialID = try c.decodeIfPresent(UUID.self, forKey: .credentialID)
         domain = try c.decodeIfPresent(String.self, forKey: .domain) ?? ""
         monitored = try c.decodeIfPresent(Bool.self, forKey: .monitored) ?? true
         multipleMonitors = try c.decodeIfPresent(Bool.self, forKey: .multipleMonitors) ?? false
@@ -268,23 +272,27 @@ struct StoreDocument: Codable {
     var version: Int
     var machines: [Machine]
     var deleted: [Tombstone]
+    var credentials: [CredentialSet]
 
     /// How long a delete is remembered.
     static let tombstoneLifetime: TimeInterval = 30 * 24 * 3600
 
-    init(version: Int, machines: [Machine], deleted: [Tombstone] = []) {
+    init(version: Int, machines: [Machine], deleted: [Tombstone] = [],
+         credentials: [CredentialSet] = []) {
         self.version = version
         self.machines = machines
         self.deleted = deleted
+        self.credentials = credentials
     }
 
-    /// Tolerant for the same reason `Machine` is: a file written before deletes were
-    /// recorded has no such key.
+    /// Tolerant for the same reason `Machine` is: a file written before deletes or shared
+    /// sign-ins existed has no such key.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
         machines = try c.decodeIfPresent([Machine].self, forKey: .machines) ?? []
         deleted = try c.decodeIfPresent([Tombstone].self, forKey: .deleted) ?? []
+        credentials = try c.decodeIfPresent([CredentialSet].self, forKey: .credentials) ?? []
     }
 }
 
@@ -353,6 +361,7 @@ struct MachineMerge {
         merge.field(\.primary)
         merge.field(\.audio)
         merge.field(\.username)
+        merge.field(\.credentialID)
         merge.field(\.domain)
         merge.field(\.monitored)
         merge.field(\.multipleMonitors)
@@ -388,5 +397,40 @@ struct MachineMerge {
         }
         if all.count > 200 { all.removeFirst(all.count - 200) }
         return all
+    }
+}
+
+/// A sign-in shared by several machines.
+///
+/// One domain account across twenty machines used to mean typing the password twenty times
+/// and, when it rotated, editing twenty machines. A set is referred to by id, so changing
+/// the password in one place changes it for every machine using it.
+///
+/// The name, username and domain travel in the shared list because none of them is a secret
+/// and the other admins need to see which account a machine uses. The password does not: it
+/// stays in each Mac's own Keychain under the set's id, exactly as a per-machine password
+/// stays under the machine's id. So a set arriving from another Mac is a named account with
+/// no password until this Mac is given one, which is the same rule the app has always had.
+struct CredentialSet: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var name = ""
+    var username = ""
+    var domain = ""
+    var modifiedAt = Date()
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
+        domain = try c.decodeIfPresent(String.self, forKey: .domain) ?? ""
+        modifiedAt = try c.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? Date()
+    }
+
+    /// What to show when the username alone would be ambiguous.
+    var qualifiedUsername: String {
+        domain.isEmpty ? username : "\(domain)\\\(username)"
     }
 }

@@ -11,6 +11,8 @@ struct SettingsView: View {
                 .tabItem { Label("Storage", systemImage: "externaldrive") }
             ConnectionSettings()
                 .tabItem { Label("Connections", systemImage: "network") }
+            CredentialSettings()
+                .tabItem { Label("Sign-ins", systemImage: "key") }
         }
         .frame(width: 540)
         .padding()
@@ -326,5 +328,135 @@ struct ConnectionSettings: View {
               let id = Bundle(url: app)?.bundleIdentifier else { return }
         extraTerminal = (name: FileManager.default.displayName(atPath: app.path), bundleID: id)
         sshTerminal = id
+    }
+}
+
+/// Managing the shared sign-ins.
+struct CredentialSettings: View {
+    @EnvironmentObject private var store: MachineStore
+    @State private var selection: UUID?
+    @State private var editing: CredentialSet?
+    @State private var creating = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("A sign-in used by several machines. Change the password once here and "
+                 + "every machine using it connects with the new one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            List(selection: $selection) {
+                ForEach(store.credentials) { set in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(set.name.isEmpty ? set.qualifiedUsername : set.name)
+                                .font(.headline)
+                            Text(set.qualifiedUsername)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text("\(store.machineCount(usingCredential: set.id)) machines")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .tag(set.id)
+                    .contextMenu {
+                        Button("Edit…") { editing = set }
+                        Button("Delete", role: .destructive) { store.removeCredential(set.id) }
+                    }
+                }
+            }
+            .frame(minHeight: 160)
+            .overlay {
+                if store.credentials.isEmpty {
+                    Text("No shared sign-ins yet.").foregroundStyle(.secondary)
+                }
+            }
+
+            HStack {
+                Button("Add…") { creating = true }
+                Button("Edit…") {
+                    if let selection { editing = store.credential(selection) }
+                }
+                .disabled(selection == nil)
+                Button("Delete", role: .destructive) {
+                    if let selection { store.removeCredential(selection) }
+                    selection = nil
+                }
+                .disabled(selection == nil)
+                Spacer()
+            }
+            if let selection, store.machineCount(usingCredential: selection) > 0 {
+                Text("Deleting a sign-in puts the machines using it back on their own.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
+        .sheet(isPresented: $creating) {
+            CredentialEditView(set: CredentialSet(), isNew: true)
+        }
+        .sheet(item: $editing) { set in
+            CredentialEditView(set: set, isNew: false)
+        }
+    }
+}
+
+struct CredentialEditView: View {
+    @EnvironmentObject private var store: MachineStore
+    @Environment(\.dismiss) private var dismiss
+    @State var set: CredentialSet
+    let isNew: Bool
+
+    @State private var password = ""
+    /// So that saving without touching the field leaves the stored password alone instead
+    /// of clearing it.
+    @State private var passwordTouched = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                Section("Sign-in") {
+                    TextField("Name", text: $set.name, prompt: Text("Domain admin"))
+                    TextField("Username", text: $set.username, prompt: Text("administrator"))
+                    TextField("Domain", text: $set.domain, prompt: Text("optional"))
+                    SecureField(isNew ? "Password" : "Password (leave blank to keep)",
+                                text: $password)
+                        .onChange(of: password) { _, _ in passwordTouched = true }
+                    Text("The name, username and domain go in the shared list so everyone "
+                         + "can see which account a machine uses. The password stays in "
+                         + "this Mac's Keychain.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            Divider()
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(isNew ? "Add" : "Save") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(set.username.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding()
+        }
+        .frame(width: 440, height: 300)
+    }
+
+    private func save() {
+        var c = set
+        c.name = c.name.trimmingCharacters(in: .whitespaces)
+        c.username = c.username.trimmingCharacters(in: .whitespaces)
+        c.domain = c.domain.trimmingCharacters(in: .whitespaces)
+        if c.name.isEmpty { c.name = c.qualifiedUsername }
+        if isNew {
+            store.addCredential(c, password: password)
+        } else {
+            store.updateCredential(c, password: passwordTouched ? password : nil)
+        }
+        dismiss()
     }
 }

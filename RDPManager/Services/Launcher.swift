@@ -169,8 +169,29 @@ enum Launcher {
     /// real Keychain item for a machine that does not exist.
     static var savedPassword: (UUID) -> String? = { Keychain.password(for: $0) }
 
+    /// Shared sign-ins live in the store, which this does not own, so it is a seam for the
+    /// same reason. Only consulted for a machine that actually points at one.
+    static var credentialSet: (UUID) -> CredentialSet? = { MachineStore.shared.credential($0) }
+
+    /// Who to sign in as, and where the password for it is kept.
+    struct Login: Equatable {
+        var username = ""
+        var domain = ""
+        /// The Keychain account holding the password: the shared sign-in's id when the
+        /// machine uses one, and otherwise the machine's own.
+        var passwordKey: UUID
+    }
+
+    static func login(for machine: Machine) -> Login {
+        if let id = machine.credentialID, let set = credentialSet(id) {
+            return Login(username: set.username, domain: set.domain, passwordKey: set.id)
+        }
+        let own = machine.login
+        return Login(username: own.username, domain: own.domain, passwordKey: machine.id)
+    }
+
     static func hasSavedPassword(_ machine: Machine) -> Bool {
-        !(savedPassword(machine.id) ?? "").isEmpty
+        !(savedPassword(login(for: machine).passwordKey) ?? "").isEmpty
     }
 
     /// Which client `.auto` picks. A saved password decides it, because only FreeRDP can
@@ -256,7 +277,7 @@ enum Launcher {
             "smart sizing:i:1",
             "dynamic resolution:i:1",
         ]
-        let login = machine.login
+        let login = Self.login(for: machine)
         if !login.username.isEmpty { lines.append("username:s:\(login.username)") }
         if !login.domain.isEmpty { lines.append("domain:s:\(login.domain)") }
         // No folder line: Windows App does not take one from a .rdp file it is handed, so
@@ -308,7 +329,7 @@ enum Launcher {
             // Named for what it is on the far side. The share only lasts the session.
             args.append("/drive:Mac,\(machine.sharedFolder)")
         }
-        let login = machine.login
+        let login = Self.login(for: machine)
         if !login.domain.isEmpty { args.append("/d:\(login.domain)") }
         if !login.username.isEmpty { args.append("/u:\(login.username)") }
         // Only with a username to go with it. FreeRDP asks on stdin for each thing it is
@@ -316,8 +337,8 @@ enum Launcher {
         // username is also absent would answer the wrong question with it. A saved password
         // and no username is a half-filled machine either way: FreeRDP asks for both in its
         // own window, as it did before any password was saved.
-        if let password = savedPassword(machine.id), !password.isEmpty,
-           !machine.login.username.isEmpty {
+        if let password = savedPassword(login.passwordKey), !password.isEmpty,
+           !login.username.isEmpty {
             args.append("/from-stdin")
             return FreeRDPInvocation(arguments: args, standardInput: password + "\n")
         }
@@ -396,9 +417,10 @@ enum Launcher {
         components.scheme = "vnc"
         components.host = machine.connectHost
         components.port = machine.vncPort
-        if !machine.username.isEmpty {
-            components.user = machine.username
-            components.password = Keychain.password(for: machine.id)
+        let login = Self.login(for: machine)
+        if !login.username.isEmpty {
+            components.user = login.username
+            components.password = savedPassword(login.passwordKey)
         }
         guard let url = components.url else { throw LaunchError.badAddress }
         NSWorkspace.shared.open(url)
@@ -426,7 +448,8 @@ enum Launcher {
         components.scheme = "ssh"
         components.host = machine.connectHost
         components.port = machine.sshPort
-        if !machine.username.isEmpty { components.user = machine.username }
+        let user = Self.login(for: machine).username
+        if !user.isEmpty { components.user = user }
         guard let url = components.url else { throw LaunchError.badAddress }
         NSWorkspace.shared.open(url)
     }
@@ -444,9 +467,11 @@ enum Launcher {
     }
 
     static func sshCommand(for machine: Machine) -> String {
-        let target = machine.username.isEmpty
+        // The username only; the password is deliberately never written into the script.
+        let user = Self.login(for: machine).username
+        let target = user.isEmpty
             ? machine.connectHost
-            : "\(machine.username)@\(machine.connectHost)"
+            : "\(user)@\(machine.connectHost)"
         var command = "exec ssh"
         if machine.sshPort != 22 { command += " -p \(machine.sshPort)" }
         return command + " " + shellQuoted(target)
