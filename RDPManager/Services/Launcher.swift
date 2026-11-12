@@ -280,6 +280,14 @@ enum Launcher {
         let login = Self.login(for: machine)
         if !login.username.isEmpty { lines.append("username:s:\(login.username)") }
         if !login.domain.isEmpty { lines.append("domain:s:\(login.domain)") }
+        if !machine.gateway.isEmpty {
+            // 1 is "use these gateway settings"; 4 tells it to ask for the gateway's own
+            // credentials rather than assuming the session's will do.
+            lines.append("gatewayhostname:s:\(machine.gateway)")
+            lines.append("gatewayusagemethod:i:1")
+            lines.append("gatewaycredentialssource:i:4")
+            lines.append("gatewayprofileusagemethod:i:1")
+        }
         // No folder line: Windows App does not take one from a .rdp file it is handed, so
         // writing one would promise something that silently does not happen.
         return lines.joined(separator: "\r\n")
@@ -324,6 +332,16 @@ enum Launcher {
             "/audio-mode:\(machine.audio.rdpValue)",
         ]
         if machine.multipleMonitors { args.append("/multimon") }
+        if !machine.gateway.isEmpty {
+            // Username and domain but no password: a password here would be back in the
+            // process arguments, which is what /from-stdin exists to avoid. FreeRDP asks
+            // for the gateway's password itself when it needs one.
+            var gateway = "g:\(machine.gateway)"
+            let login = Self.login(for: machine)
+            if !login.username.isEmpty { gateway += ",u:\(login.username)" }
+            if !login.domain.isEmpty { gateway += ",d:\(login.domain)" }
+            args.append("/gateway:\(gateway)")
+        }
         if machine.displayScale != 100 { args.append("/scale:\(machine.displayScale)") }
         if !machine.sharedFolder.isEmpty {
             // Named for what it is on the far side. The share only lasts the session.
@@ -474,6 +492,11 @@ enum Launcher {
             : "\(user)@\(machine.connectHost)"
         var command = "exec ssh"
         if machine.sshPort != 22 { command += " -p \(machine.sshPort)" }
+        // -J makes ssh open the session through the jump host, so the machine only has to
+        // be reachable from there and not from here.
+        if !machine.jumpHost.isEmpty {
+            command += " -J " + shellQuoted(machine.jumpHost)
+        }
         return command + " " + shellQuoted(target)
     }
 

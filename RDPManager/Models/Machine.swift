@@ -135,6 +135,11 @@ struct Machine: Codable, Identifiable, Hashable {
     var sharedFolder = ""
     /// Percentage, as both clients want it: 100, 140 or 180.
     var displayScale = 100
+    /// A reachable machine to route SSH through, as `ssh -J`. The way into a network this
+    /// Mac cannot reach directly without the app having to understand sites at all.
+    var jumpHost = ""
+    /// An RD Gateway for RDP, host or host:port. The same idea for Windows.
+    var gateway = ""
     var rdpPort = 3389
     var vncPort = 5900
     var sshPort = 22
@@ -169,6 +174,8 @@ struct Machine: Codable, Identifiable, Hashable {
         multipleMonitors = try c.decodeIfPresent(Bool.self, forKey: .multipleMonitors) ?? false
         shareClipboard = try c.decodeIfPresent(Bool.self, forKey: .shareClipboard) ?? true
         sharedFolder = try c.decodeIfPresent(String.self, forKey: .sharedFolder) ?? ""
+        jumpHost = try c.decodeIfPresent(String.self, forKey: .jumpHost) ?? ""
+        gateway = try c.decodeIfPresent(String.self, forKey: .gateway) ?? ""
         let scale = try c.decodeIfPresent(Int.self, forKey: .displayScale) ?? 100
         displayScale = Self.allowedScales.contains(scale) ? scale : 100
         rdpPort = try c.decodeIfPresent(Int.self, forKey: .rdpPort) ?? 3389
@@ -368,6 +375,8 @@ struct MachineMerge {
         merge.field(\.shareClipboard)
         merge.field(\.sharedFolder)
         merge.field(\.displayScale)
+        merge.field(\.jumpHost)
+        merge.field(\.gateway)
         merge.field(\.rdpPort)
         merge.field(\.vncPort)
         merge.field(\.sshPort)

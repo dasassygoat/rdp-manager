@@ -56,6 +56,8 @@ enum MachineLookup {
     static func sshArguments(for machine: Machine, extra: [String] = []) -> [String] {
         var args: [String] = []
         if machine.sshPort != 22 { args += ["-p", String(machine.sshPort)] }
+        // The machine only has to be reachable from the jump host, not from here.
+        if !machine.jumpHost.isEmpty { args += ["-J", machine.jumpHost] }
         args += extra
         let host = address(of: machine)
         args.append(machine.username.isEmpty ? host : "\(machine.username)@\(host)")

@@ -95,6 +95,17 @@ struct MachineEditView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                Section("Getting there") {
+                    TextField("SSH jump host", text: $machine.jumpHost,
+                              prompt: Text("optional, user@host that can reach it"))
+                    TextField("RD Gateway", text: $machine.gateway,
+                              prompt: Text("optional, gateway.example.com"))
+                    Text("For a machine this Mac cannot reach directly. SSH goes through "
+                         + "the jump host; RDP goes through the gateway, which asks for its "
+                         + "own credentials.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Section("Ports") {
                     TextField("RDP", value: $machine.rdpPort, format: .number)
                     TextField("VNC", value: $machine.vncPort, format: .number)
@@ -125,7 +136,7 @@ struct MachineEditView: View {
             }
             .padding()
         }
-        .frame(width: 520, height: 720)
+        .frame(width: 520, height: 760)
         .onAppear {
             tagsText = machine.tagsText
             if !isNew { password = Keychain.password(for: machine.id) ?? "" }
@@ -166,6 +177,8 @@ struct MachineEditView: View {
         m.macAddress = m.macAddress.trimmingCharacters(in: .whitespaces)
         m.domain = m.domain.trimmingCharacters(in: .whitespaces)
         m.sharedFolder = m.sharedFolder.trimmingCharacters(in: .whitespaces)
+        m.jumpHost = m.jumpHost.trimmingCharacters(in: .whitespaces)
+        m.gateway = m.gateway.trimmingCharacters(in: .whitespaces)
         m.tags = tagsText.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
