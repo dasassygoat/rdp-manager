@@ -201,6 +201,15 @@ final class DiscoveryMatchTests: StoreTestCase {
         XCTAssertEqual(Discovery.defaultSelection(among: found), ["192.168.1.10"])
     }
 
+    /// The sweep answers itself on every interface the Mac has. Ticking those is how a
+    /// list ends up with a record called `host-152` that is the Mac you are sitting at.
+    func testThisMacIsListedButNotTicked() {
+        var me = Discovery.Host(ip: "192.168.1.9", openPorts: [22])
+        me.isThisMac = true
+        let found = [me, Discovery.Host(ip: "192.168.1.10", openPorts: [22])]
+        XCTAssertEqual(Discovery.defaultSelection(among: found), ["192.168.1.10"])
+    }
+
     // MARK: Filling in a MAC the list is missing
 
     /// A machine added before the sweep could read the ARP cache has no MAC, so

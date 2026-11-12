@@ -34,6 +34,10 @@ final class Discovery: ObservableObject {
         var openPorts: Set<Int> = []
         /// Set when the address matches a machine already in the list.
         var existing: Machine?
+        /// Set when the host is the Mac doing the sweeping. A sweep answers itself on every
+        /// interface it has, and ticking those is how a list ends up with three records for
+        /// the Mac you are sitting at.
+        var isThisMac = false
 
         var id: String { ip }
 
@@ -155,7 +159,7 @@ final class Discovery: ObservableObject {
     var defaultSelection: Set<String> { Self.defaultSelection(among: hosts) }
 
     nonisolated static func defaultSelection(among hosts: [Host]) -> Set<String> {
-        Set(hosts.filter { $0.existing == nil && !$0.isSilent }.map(\.ip))
+        Set(hosts.filter { $0.existing == nil && !$0.isSilent && !$0.isThisMac }.map(\.ip))
     }
 
     func cancel() {
@@ -237,6 +241,8 @@ final class Discovery: ObservableObject {
             var host = Host(ip: ip, mac: arp[ip], openPorts: openByHost[ip] ?? [])
             host.hostname = await Resolver.reverseLookup(ip)
             host.existing = match(host)
+            host.isThisMac = ThisMac.matches(mac: host.mac ?? "",
+                                             names: [host.hostname ?? ""])
             found.append(host)
         }
         hosts = backfillMACs(into: found)

@@ -221,6 +221,13 @@ another profile name, `SKIP_NOTARIZE=1` to sign without submitting.
 * **Wake** sends the packet, waits for the machine to answer on the port it is reached on,
   and then connects. The broadcast address comes from the mask of the interface this Mac
   shares with the machine, so it is right on something other than a /24.
+* **This Mac is left out of the list.** The list is shared, so the Mac you are sitting at
+  is in it too, and its own row is the one row that cannot be connected to. The app
+  recognizes itself by MAC address or by its own name — hostname or the name in Sharing
+  settings — and hides every record that is this Mac, which is often more than one: a Mac
+  with several interfaces gets a record per address a sweep found it at. They are hidden
+  here only, staying in the shared file, where the other Macs go on seeing them. Settings →
+  General names what was recognized and turns it off.
 * **Status** is checked every 30 seconds (Settings → General). A TCP connection to the
   service port counts as online, so Windows machines that block ping still show correctly.
   A machine is found by its name, then by the address on file, then by wherever its MAC is

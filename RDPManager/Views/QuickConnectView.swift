@@ -17,7 +17,7 @@ struct QuickConnectView: View {
     @FocusState private var focused: Bool
 
     private var results: [QuickConnectMatch.Result] {
-        QuickConnectMatch.rank(store.machines, query: query)
+        QuickConnectMatch.rank(store.listed, query: query)
     }
 
     /// The field, and then either the rows or the line saying there are none. Worked out

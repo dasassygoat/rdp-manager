@@ -127,6 +127,16 @@ Machine
 * The list is backed up on this Mac before each change that replaces it, ten deep, so a bad
   merge or a mistaken import can be undone. Backups are local rather than beside the list,
   so several Macs do not each drop copies on the share.
+* The Mac the app is running on is left out of its own list by default, since the shared
+  list contains every Mac including this one. Identity is MAC address or name (hostname or
+  the Sharing name), never IP address: a stale address would make this Mac out to be
+  whichever machine holds that address now. An empty field never matches, or a half-written
+  machine would be hidden. Every matching record is hidden, not the first: a Mac with
+  several interfaces is found at several addresses, and a sweep writes a record for each, so
+  one real list held this Mac three times. The setting is in local defaults, not the shared document —
+  every Mac wants a different row gone, so one shared value could only be right for one of
+  them — and it affects what is listed, counted and offered, never what is saved: the record
+  is still written, still merged, and still monitored for the other Macs.
 * Export / import of the same JSON for backup. An import previews what it will add and
   replace before doing it.
 

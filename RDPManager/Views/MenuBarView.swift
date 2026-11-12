@@ -7,19 +7,22 @@ struct MenuBarView: View {
 
     /// Only worth a section of its own once there are more machines than it would list.
     private var recents: [Machine] {
-        guard store.machines.count > 5 else { return [] }
-        return log.recentMachineIDs(limit: 5).compactMap { store.machine($0) }
+        guard store.listed.count > 5 else { return [] }
+        let listed = Set(store.listed.map(\.id))
+        return log.recentMachineIDs(limit: 5)
+            .filter { listed.contains($0) }
+            .compactMap { store.machine($0) }
     }
 
     private var sections: [(title: String, machines: [Machine])] {
-        let grouped = Dictionary(grouping: store.machines, by: \.group)
+        let grouped = Dictionary(grouping: store.listed, by: \.group)
         return grouped.keys
             .sorted { ($0.isEmpty ? "\u{FFFF}" : $0).localizedCaseInsensitiveCompare($1.isEmpty ? "\u{FFFF}" : $1) == .orderedAscending }
             .map { (title: $0.isEmpty ? "Ungrouped" : $0, machines: grouped[$0] ?? []) }
     }
 
     var body: some View {
-        if store.machines.isEmpty {
+        if store.listed.isEmpty {
             Text("No machines added yet")
         }
         if !recents.isEmpty {

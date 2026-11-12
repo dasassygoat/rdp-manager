@@ -20,6 +20,21 @@ final class MachineStore: ObservableObject {
     /// file that may still be perfectly good.
     @Published private(set) var loadFailed = false
 
+    static let hideThisMacKey = "hideThisMac"
+
+    /// Whether to leave this Mac out of the list it shares with the others.
+    ///
+    /// Local to each Mac, and deliberately not in the shared file: every Mac wants its own
+    /// row gone and the other Macs' rows kept, so one shared setting could only ever be
+    /// right for one of them.
+    @Published var hidesThisMac: Bool = UserDefaults.standard.bool(forKey: MachineStore.hideThisMacKey) {
+        didSet { UserDefaults.standard.set(hidesThisMac, forKey: Self.hideThisMacKey) }
+    }
+
+    /// What this Mac is. A property rather than `ThisMac.current` read directly so a test
+    /// can say who it is pretending to be.
+    var identity: ThisMac.Identity = ThisMac.current
+
     static var defaultDirectory: URL { StoreLocation.defaultDirectory }
 
     static var defaultStoreURL: URL { StoreLocation.defaultFileURL }
@@ -81,6 +96,10 @@ final class MachineStore: ObservableObject {
     /// `storeURL` overrides the saved location and `watchForChanges` disables the file
     /// watcher and reload timer; both are for tests, which bind a store to a temp file.
     init(storeURL: URL? = nil, watchForChanges: Bool = true) {
+        // Hidden unless asked for: a row for the Mac you are sitting at is the one row in
+        // the list that cannot be connected to. The setting is there to put it back.
+        UserDefaults.standard.register(defaults: [Self.hideThisMacKey: true])
+        hidesThisMac = UserDefaults.standard.bool(forKey: Self.hideThisMacKey)
         if let storeURL {
             self.storeURL = storeURL
         } else if let saved = UserDefaults.standard.string(forKey: Self.pathKey), !saved.isEmpty {
@@ -107,20 +126,45 @@ final class MachineStore: ObservableObject {
         machines.count { $0.credentialID == id }
     }
 
+    /// The records in the list that describe this Mac. More than one is normal: a Mac with
+    /// several interfaces is found at several addresses, and a sweep writes a record for
+    /// each one it does not already know.
+    var thisMacIDs: Set<UUID> {
+        Set(ThisMac.identify(in: machines, identity: identity))
+    }
+
+    /// Them in list order, for the settings pane to name what it is hiding.
+    var thisMacMachines: [Machine] {
+        let ids = thisMacIDs
+        return machines.filter { ids.contains($0.id) }
+    }
+
+    /// The machines to show. Everything the UI lists reads this; `machines` stays the whole
+    /// truth, so a hidden record is still saved, still merged, and still there for the
+    /// other Macs — it is only this Mac's own view of the list that leaves it out.
+    var listed: [Machine] {
+        guard hidesThisMac else { return machines }
+        let ids = thisMacIDs
+        guard !ids.isEmpty else { return machines }
+        return machines.filter { !ids.contains($0.id) }
+    }
+
     var groups: [String] {
-        Array(Set(machines.map(\.group).filter { !$0.isEmpty }))
+        Array(Set(listed.map(\.group).filter { !$0.isEmpty }))
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     /// Every tag in use, once each. Unlike groups a machine can carry several, so this is
     /// the flattened set rather than one value per machine.
     var tags: [String] {
-        Array(Set(machines.flatMap(\.tags).filter { !$0.isEmpty }))
+        Array(Set(listed.flatMap(\.tags).filter { !$0.isEmpty }))
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    /// Counted over `listed`, so the badges and the menu bar icon agree with the list
+    /// they sit next to rather than counting a row that is not on show.
     func count(where state: OnlineState) -> Int {
-        machines.filter { (statuses[$0.id]?.state ?? .unknown) == state }.count
+        listed.filter { (statuses[$0.id]?.state ?? .unknown) == state }.count
     }
 
     // MARK: - Editing

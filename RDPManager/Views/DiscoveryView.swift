@@ -218,6 +218,13 @@ private struct DiscoveredRow: View {
                 HStack(spacing: 6) {
                     Text(host.existing?.name ?? host.suggestedName)
                         .font(.body)
+                    if host.isThisMac {
+                        Text("this Mac")
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(.quaternary, in: Capsule())
+                    }
                     if host.existing != nil {
                         Text("in your list")
                             .font(.caption2)

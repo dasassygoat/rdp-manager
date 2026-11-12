@@ -20,6 +20,7 @@ struct SettingsView: View {
 }
 
 struct GeneralSettings: View {
+    @EnvironmentObject private var store: MachineStore
     @AppStorage(Monitor.intervalKey) private var pollInterval: Double = Monitor.defaultInterval
     @AppStorage(NotificationKind.offline.defaultsKey) private var notifyOffline = true
     @AppStorage(NotificationKind.backOnline.defaultsKey) private var notifyBackOnline = true
@@ -35,6 +36,12 @@ struct GeneralSettings: View {
                 Text("1 minute").tag(60.0)
                 Text("2 minutes").tag(120.0)
                 Text("5 minutes").tag(300.0)
+            }
+            Section("This Mac") {
+                Toggle("Leave this Mac out of the list", isOn: $store.hidesThisMac)
+                Text(thisMacNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("Notify me when") {
                 Toggle("A machine goes offline", isOn: $notifyOffline)
@@ -79,6 +86,27 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Says which record was taken to be this Mac, so the setting can be trusted rather
+    /// than guessed at — and so a Mac that is not in the list at all says so plainly
+    /// instead of looking like a setting that does nothing.
+    private var thisMacNote: String {
+        let mine = store.thisMacMachines
+        if !mine.isEmpty {
+            let names = mine.map { "\u{201C}\($0.name)\u{201D}" }
+            // Plural because a Mac with several interfaces has a record per address a
+            // sweep found it at, and all of them are this Mac.
+            return "Recognized as \(names.joined(separator: ", ")). "
+                + (mine.count > 1
+                   ? "They are the same Mac, found at several addresses. "
+                   : "")
+                + "The record stays in the shared list and the other Macs still see it; "
+                + "this only hides it here."
+        }
+        return "Nothing in the list looks like this Mac, so nothing is hidden. A machine is "
+            + "recognized by its MAC address or by matching this Mac's name "
+            + "(\(ThisMac.current.names.sorted().joined(separator: ", ")))."
     }
 
     private var lastCheckedText: String {

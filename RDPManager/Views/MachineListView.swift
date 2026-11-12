@@ -13,7 +13,7 @@ struct MachineListView: View {
                 .contextMenu { MachineActions(machine: machine, onEdit: onEdit) }
         }
         .overlay {
-            if store.machines.isEmpty {
+            if store.listed.isEmpty {
                 ContentUnavailableView(
                     "No Machines Yet",
                     systemImage: "plus.circle",

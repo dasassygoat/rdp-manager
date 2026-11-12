@@ -19,7 +19,9 @@ struct ContentView: View {
     @ObservedObject private var updater = Updater.shared
 
     private var visibleMachines: [Machine] {
-        store.machines.filter { machine in
+        // `listed`, not `machines`: this Mac's own row is left out of its own list unless
+        // the setting says otherwise. See `MachineStore.listed`.
+        store.listed.filter { machine in
             let state = store.statuses[machine.id]?.state ?? .unknown
             switch sidebar ?? .all {
             case .all: break
@@ -111,7 +113,7 @@ struct SidebarView: View {
         List(selection: $selection) {
             Section("Machines") {
                 Label("All", systemImage: "desktopcomputer")
-                    .badge(store.machines.count)
+                    .badge(store.listed.count)
                     .tag(SidebarItem.all)
                 Label("Online", systemImage: "circle.fill")
                     .badge(store.count(where: .online))
@@ -124,7 +126,7 @@ struct SidebarView: View {
                 Section("Groups") {
                     ForEach(store.groups, id: \.self) { group in
                         Label(group, systemImage: "folder")
-                            .badge(store.machines.filter { $0.group == group }.count)
+                            .badge(store.listed.filter { $0.group == group }.count)
                             .tag(SidebarItem.group(group))
                     }
                 }
@@ -136,7 +138,7 @@ struct SidebarView: View {
                 Section("Tags") {
                     ForEach(store.tags, id: \.self) { tag in
                         Label(tag, systemImage: "tag")
-                            .badge(store.machines.filter { $0.tags.contains(tag) }.count)
+                            .badge(store.listed.filter { $0.tags.contains(tag) }.count)
                             .tag(SidebarItem.tag(tag))
                     }
                 }
