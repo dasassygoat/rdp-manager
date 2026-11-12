@@ -76,18 +76,54 @@ final class Monitor: ObservableObject {
         lastCycle = Date()
     }
 
+    /// Where to look for a machine, in the order worth trying: what its name resolves to,
+    /// the address it was last found at, and — when neither answers — wherever its MAC is
+    /// in the ARP cache now.
+    ///
+    /// That last one is the case the app used to lose completely. A machine with no DNS
+    /// record and no Bonjour name cannot be found by name, and once its DHCP lease changes
+    /// the address on file belongs to something else, so it stayed "offline" until someone
+    /// noticed and edited it by hand. The MAC was already being collected for Wake-on-LAN.
+    nonisolated static func addressesToTry(
+        for machine: Machine,
+        resolved: String?,
+        arpTable: [String: String]
+    ) -> [String] {
+        var candidates: [String] = []
+        if let resolved, !resolved.isEmpty { candidates.append(resolved) }
+        if let last = machine.lastIP, !last.isEmpty { candidates.append(last) }
+        if !machine.macAddress.isEmpty,
+           let viaMAC = ARPTable.address(ofMAC: machine.macAddress, table: arpTable) {
+            candidates.append(viaMAC)
+        }
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0).inserted }
+    }
+
     nonisolated static func probe(_ machine: Machine) async -> ProbeResult {
         let resolved = await Resolver.resolve(machine.hostname.isEmpty ? machine.name : machine.hostname)
-        guard let target = resolved ?? machine.lastIP else {
+        // Read only when it might be needed: the cache is only consulted for a machine that
+        // has a MAC on file, and reading it costs a sysctl.
+        let arp = machine.macAddress.isEmpty ? [:] : ARPTable.current()
+        let candidates = addressesToTry(for: machine, resolved: resolved, arpTable: arp)
+        guard !candidates.isEmpty else {
             return ProbeResult(ip: nil, reachable: false, latencyMs: nil)
         }
-        let started = Date()
-        if await Prober.tcpOpen(host: target, port: machine.probePort) {
-            return ProbeResult(ip: resolved, reachable: true,
-                               latencyMs: Date().timeIntervalSince(started) * 1000)
+
+        for target in candidates {
+            let started = Date()
+            if await Prober.tcpOpen(host: target, port: machine.probePort) {
+                // The address it actually answered at, so a machine found by its MAC has
+                // its new address recorded rather than being probed from scratch next time.
+                return ProbeResult(ip: target, reachable: true,
+                                   latencyMs: Date().timeIntervalSince(started) * 1000)
+            }
+            let ping = await Prober.ping(target)
+            if ping.reachable {
+                return ProbeResult(ip: target, reachable: true, latencyMs: ping.latencyMs)
+            }
         }
-        let ping = await Prober.ping(target)
-        return ProbeResult(ip: resolved, reachable: ping.reachable, latencyMs: ping.latencyMs)
+        return ProbeResult(ip: resolved, reachable: false, latencyMs: nil)
     }
 
     private func apply(_ result: ProbeResult, to id: UUID) {

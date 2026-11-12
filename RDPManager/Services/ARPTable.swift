@@ -28,6 +28,21 @@ enum ARPTable {
         return macs(inRoutingMessages: Array(buffer.prefix(needed)))
     }
 
+    /// Where a MAC is now, which is the cache read backwards.
+    ///
+    /// A machine with no DNS or Bonjour name is invisible by name, and once its lease
+    /// changes the address on file belongs to something else. The MAC is the one thing that
+    /// did not change. Several addresses can share a MAC — an interface with an alias — and
+    /// the lowest is taken so the answer does not depend on the order the kernel happened
+    /// to hand the table over in.
+    static func address(ofMAC mac: String, table: [String: String] = current()) -> String? {
+        guard let wanted = normalize(mac) else { return nil }
+        return table
+            .filter { normalize($0.value) == wanted }
+            .keys
+            .min { (IPv4Subnet.parse($0) ?? 0) < (IPv4Subnet.parse($1) ?? 0) }
+    }
+
     /// Pulls IP to MAC out of a block of routing messages, each one a `rt_msghdr` followed
     /// by the addresses its `rtm_addrs` mask names. Entries still being resolved carry no
     /// link address and are left out; the same IP can appear once per interface, and the
