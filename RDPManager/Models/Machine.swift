@@ -254,7 +254,139 @@ struct MachineStatus {
     var resolvedIP: String?
 }
 
+/// A machine that was deleted, and when.
+///
+/// Without these a delete does not stick: another Mac that has not reloaded still has the
+/// machine, writes the list back, and it reappears. The record is kept for a month, which is
+/// far longer than any Mac is plausibly away from the share, and then forgotten.
+struct Tombstone: Codable, Hashable, Identifiable {
+    var id: UUID
+    var at: Date
+}
+
 struct StoreDocument: Codable {
     var version: Int
     var machines: [Machine]
+    var deleted: [Tombstone]
+
+    /// How long a delete is remembered.
+    static let tombstoneLifetime: TimeInterval = 30 * 24 * 3600
+
+    init(version: Int, machines: [Machine], deleted: [Tombstone] = []) {
+        self.version = version
+        self.machines = machines
+        self.deleted = deleted
+    }
+
+    /// Tolerant for the same reason `Machine` is: a file written before deletes were
+    /// recorded has no such key.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        machines = try c.decodeIfPresent([Machine].self, forKey: .machines) ?? []
+        deleted = try c.decodeIfPresent([Tombstone].self, forKey: .deleted) ?? []
+    }
+}
+
+/// Merging one machine's record from two Macs.
+///
+/// The store used to resolve a conflict a whole machine at a time: the record with the later
+/// `modifiedAt` won and the other was discarded. That loses edits that never actually
+/// conflicted — one admin renaming a machine while another fixes its port means one of the
+/// two changes is thrown away, and the one that survives depends on which Mac saved last.
+///
+/// This compares each field against the last version both Macs had seen, so a field only
+/// one side touched is taken from that side whatever the timestamps say. Only a field both
+/// sides changed, to different values, needs `modifiedAt` to settle it.
+struct MachineMerge {
+    let local: Machine
+    let remote: Machine
+    /// The last record both Macs are known to have agreed on: what this Mac last read from
+    /// the file or wrote to it.
+    let base: Machine
+    private(set) var result: Machine
+
+    init(local: Machine, remote: Machine, base: Machine) {
+        self.local = local
+        self.remote = remote
+        self.base = base
+        self.result = remote
+    }
+
+    mutating func field<T: Equatable>(_ keyPath: WritableKeyPath<Machine, T>) {
+        let mine = local[keyPath: keyPath]
+        let theirs = remote[keyPath: keyPath]
+        let agreed = base[keyPath: keyPath]
+
+        if mine == theirs { result[keyPath: keyPath] = mine }
+        else if mine == agreed { result[keyPath: keyPath] = theirs }   // only they changed it
+        else if theirs == agreed { result[keyPath: keyPath] = mine }   // only we changed it
+        else {
+            // Both changed it, to different things. Nothing here can tell which is right,
+            // so the later edit wins — the old whole-record rule, now confined to the one
+            // field it is actually needed for.
+            result[keyPath: keyPath] = local.modifiedAt >= remote.modifiedAt ? mine : theirs
+        }
+    }
+
+    static func merge(local: Machine, remote: Machine, base: Machine?) -> Machine {
+        // With nothing known to have been agreed on there is no way to tell a change from
+        // an absence, so this falls back to the old rule.
+        guard let base else {
+            return local.modifiedAt > remote.modifiedAt ? local : remote
+        }
+
+        // A record older than the version we agreed on is not an edit, it is a copy that
+        // has not caught up — another Mac that has been away from the share, or one still
+        // holding the list from yesterday. Comparing fields against the baseline would read
+        // every field it has not yet heard about as a deliberate change back.
+        guard remote.modifiedAt >= base.modifiedAt else { return local }
+
+        var merge = MachineMerge(local: local, remote: remote, base: base)
+        merge.field(\.name)
+        merge.field(\.hostname)
+        merge.field(\.kind)
+        merge.field(\.macAddress)
+        merge.field(\.group)
+        merge.field(\.tags)
+        merge.field(\.notes)
+        merge.field(\.primary)
+        merge.field(\.audio)
+        merge.field(\.username)
+        merge.field(\.domain)
+        merge.field(\.monitored)
+        merge.field(\.multipleMonitors)
+        merge.field(\.shareClipboard)
+        merge.field(\.sharedFolder)
+        merge.field(\.displayScale)
+        merge.field(\.rdpPort)
+        merge.field(\.vncPort)
+        merge.field(\.sshPort)
+        merge.field(\.webURL)
+        merge.field(\.lastIP)
+
+        var merged = merge.result
+        // Observations rather than edits: whoever saw the machine more recently saw it, and
+        // both Macs' sightings are worth keeping.
+        merged.lastSeen = [local.lastSeen, remote.lastSeen].compactMap { $0 }.max()
+        merged.ipHistory = mergedHistory(local.ipHistory, remote.ipHistory)
+        // The record is as old as the first Mac to have it and as new as the last edit.
+        merged.createdAt = min(local.createdAt, remote.createdAt)
+        merged.modifiedAt = max(local.modifiedAt, remote.modifiedAt)
+        return merged
+    }
+
+    /// Both Macs' sightings, in order, without the duplicates that come of two Macs
+    /// recording the same change.
+    static func mergedHistory(_ mine: [IPRecord], _ theirs: [IPRecord]) -> [IPRecord] {
+        var seen = Set<String>()
+        var all = (mine + theirs).sorted { $0.seenAt < $1.seenAt }
+        all = all.filter { record in
+            // Two Macs noticing the same address at nearly the same moment is one event.
+            let key = "\(record.ip)@\(Int(record.seenAt.timeIntervalSince1970))"
+            return seen.insert(key).inserted
+        }
+        if all.count > 200 { all.removeFirst(all.count - 200) }
+        return all
+    }
 }

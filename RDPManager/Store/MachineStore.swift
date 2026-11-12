@@ -54,6 +54,15 @@ final class MachineStore: ObservableObject {
     private var pollTimer: Timer?
     private var lastSavedData: Data?
 
+    /// The records as this Mac last agreed with the file: what was read from it or written
+    /// to it. A merge compares against this to tell an edit from an absence, so that a field
+    /// only one Mac touched is kept whatever the timestamps say.
+    private var baseline: [UUID: Machine] = [:]
+
+    /// Machines deleted here or elsewhere, and when. Written to the file so the delete
+    /// reaches the other Macs instead of being undone by the first one to save a stale copy.
+    private var tombstones: [UUID: Date] = [:]
+
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
         e.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -108,6 +117,8 @@ final class MachineStore: ObservableObject {
     func add(_ machine: Machine) {
         var m = machine
         m.modifiedAt = Date()
+        // Adding something back undoes its delete, here and everywhere else.
+        tombstones[m.id] = nil
         machines.append(m)
         sortMachines()
         save()
@@ -126,6 +137,7 @@ final class MachineStore: ObservableObject {
         machines.removeAll { $0.id == id }
         statuses[id] = nil
         Keychain.deletePassword(for: id)
+        tombstones[id] = Date()
         save()
     }
 
@@ -215,6 +227,8 @@ final class MachineStore: ObservableObject {
             machines = doc.machines
             sortMachines()
             lastSavedData = data
+            setBaseline(to: doc.machines)
+            tombstones = Dictionary(doc.deleted.map { ($0.id, $0.at) }, uniquingKeysWith: max)
             loadFailed = false
             lastError = nil
         } catch {
@@ -244,12 +258,22 @@ final class MachineStore: ObservableObject {
         // replaced by the empty list being shown in its place.
         guard !loadFailed else { return }
         do {
-            let data = try encoder.encode(StoreDocument(version: 1, machines: machines))
+            pruneTombstones()
+            let data = try encoder.encode(document())
             try FileManager.default.createDirectory(
                 at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             backUp(before: data)
             try data.write(to: storeURL, options: .atomic)
             lastSavedData = data
+            // An existing baseline entry is deliberately NOT moved here. It stands for the
+            // last version both Macs are known to have seen, and another Mac editing right
+            // now started from what was on disk before this write, not from this write.
+            //
+            // A machine with no entry is different: this write is the first time it existed
+            // anywhere, so any copy another Mac ends up with descends from exactly this.
+            for machine in machines where baseline[machine.id] == nil {
+                baseline[machine.id] = machine
+            }
             lastError = nil
         } catch {
             lastError = "Could not write \(storeURL.lastPathComponent): \(error.localizedDescription)"
@@ -309,34 +333,54 @@ final class MachineStore: ObservableObject {
         if loadFailed { load(); return }
         guard let data = try? Data(contentsOf: storeURL), data != lastSavedData else { return }
         guard let doc = try? decoder.decode(StoreDocument.self, from: data) else { return }
-        merge(doc.machines)
+        merge(doc)
         lastSavedData = data
     }
 
-    /// Last-writer-wins per machine, by `modifiedAt`.
-    private func merge(_ incoming: [Machine]) {
+    /// Field by field against the last version both Macs agreed on, so an edit here and an
+    /// unrelated edit there both survive. See `MachineMerge`.
+    private func merge(_ incoming: StoreDocument) {
         let fileDate = (try? FileManager.default.attributesOfItem(atPath: storeURL.path)[.modificationDate] as? Date)
             ?? .distantPast
         let local = Dictionary(machines.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
-        let incomingIDs = Set(incoming.map(\.id))
+        let incomingIDs = Set(incoming.machines.map(\.id))
 
-        var merged: [Machine] = incoming.map { remote in
-            if let mine = local[remote.id], mine.modifiedAt > remote.modifiedAt { return mine }
-            return remote
+        // Deletes from both sides, the later record winning for any machine both mention.
+        for stone in incoming.deleted {
+            tombstones[stone.id] = max(tombstones[stone.id] ?? .distantPast, stone.at)
+        }
+
+        var merged: [Machine] = incoming.machines.compactMap { remote in
+            guard let mine = local[remote.id] else { return remote }
+            return MachineMerge.merge(local: mine, remote: remote, base: baseline[remote.id])
         }
         // Keep machines we changed after the file was written and that are missing on disk.
         for mine in machines where !incomingIDs.contains(mine.id) && mine.modifiedAt > fileDate {
             merged.append(mine)
         }
 
-        let keptLocalChanges = merged != incoming
+        // A machine edited after it was deleted was put back deliberately; otherwise the
+        // delete stands, however many Macs still have a copy.
+        merged = merged.filter { machine in
+            guard let deletedAt = tombstones[machine.id] else { return true }
+            if machine.modifiedAt > deletedAt {
+                tombstones[machine.id] = nil
+                return true
+            }
+            return false
+        }
+
+        let changedHere = merged != incoming.machines
+            || tombstones.count != incoming.deleted.count
         let mergedIDs = Set(merged.map(\.id))
         machines = merged
         sortMachines()
         for id in statuses.keys where !mergedIDs.contains(id) {
             statuses[id] = nil
         }
-        if keptLocalChanges { save() }
+        // Either way the file's own records are now what both Macs have seen.
+        setBaseline(to: incoming.machines)
+        if changedHere { save() }
     }
 
     private func startWatching() {
@@ -351,14 +395,32 @@ final class MachineStore: ObservableObject {
 
     // MARK: - Export / import
 
+    private func document() -> StoreDocument {
+        StoreDocument(
+            version: 1,
+            machines: machines,
+            deleted: tombstones.map { Tombstone(id: $0.key, at: $0.value) }.sorted { $0.id.uuidString < $1.id.uuidString })
+    }
+
+    private func setBaseline(to records: [Machine]) {
+        baseline = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+    }
+
+    private func pruneTombstones() {
+        let cutoff = Date().addingTimeInterval(-StoreDocument.tombstoneLifetime)
+        tombstones = tombstones.filter { $0.value > cutoff }
+    }
+
     func exportData() throws -> Data {
-        try encoder.encode(StoreDocument(version: 1, machines: machines))
+        try encoder.encode(document())
     }
 
     /// Imports machines from a JSON export. Existing machines with the same id are replaced.
     func importData(_ data: Data) throws -> Int {
         let doc = try decoder.decode(StoreDocument.self, from: data)
         for m in doc.machines {
+            // Importing a machine is asking for it back.
+            tombstones[m.id] = nil
             if let i = machines.firstIndex(where: { $0.id == m.id }) {
                 machines[i] = m
             } else {
