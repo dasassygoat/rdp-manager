@@ -27,6 +27,29 @@ enum WakeOnLAN {
         return bytes
     }
 
+    /// The subnet broadcast address to aim the packet at, taken from whichever interface
+    /// this Mac shares with the machine.
+    ///
+    /// `Machine.broadcastAddress` assumes a /24 and puts .255 in the last octet, which is
+    /// simply the wrong address on anything else — a /23 or a /16 broadcast is somewhere
+    /// else entirely, and a packet sent to the wrong one wakes nothing. The mask is already
+    /// known: `LocalInterfaces` reads it for the discovery sweep.
+    ///
+    /// Nil when no local interface covers the address, which means the machine is not on a
+    /// network this Mac is on. The limited broadcast is still sent, and the caller may still
+    /// pass its own guess.
+    static func directedBroadcast(
+        for ip: String?,
+        interfaces: [LocalInterfaces.Interface] = LocalInterfaces.active()
+    ) -> String? {
+        guard let ip, let address = IPv4Subnet.parse(ip) else { return nil }
+        for interface in interfaces
+        where address & interface.subnet.mask == interface.subnet.networkAddress {
+            return IPv4Subnet.format(interface.subnet.broadcastAddress)
+        }
+        return nil
+    }
+
     /// Sends a magic packet to the limited broadcast address and, when known, the
     /// machine's subnet broadcast address.
     static func send(mac: String, directedBroadcast: String?) throws {

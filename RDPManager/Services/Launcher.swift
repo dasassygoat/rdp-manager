@@ -487,7 +487,10 @@ enum Launcher {
     }
 
     static func wake(_ machine: Machine) throws {
-        try WakeOnLAN.send(mac: machine.macAddress, directedBroadcast: machine.broadcastAddress)
+        // The real subnet broadcast when this Mac shares a network with the machine, and the
+        // /24 guess only when it does not.
+        let directed = WakeOnLAN.directedBroadcast(for: machine.lastIP) ?? machine.broadcastAddress
+        try WakeOnLAN.send(mac: machine.macAddress, directedBroadcast: directed)
     }
 }
 

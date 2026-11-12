@@ -3,6 +3,7 @@ import SwiftUI
 struct MachineDetailView: View {
     @EnvironmentObject private var store: MachineStore
     @ObservedObject private var log = ConnectionLog.shared
+    @ObservedObject private var waking = WakeSession.shared
     let machine: Machine
     let onEdit: (Machine) -> Void
 
@@ -93,14 +94,34 @@ struct MachineDetailView: View {
                 .controlSize(.large)
             }
 
-            Button {
-                wake(machine)
-            } label: {
-                Label("Wake", systemImage: "power")
+            if waking.isWaiting(for: machine.id) {
+                Button {
+                    waking.cancel(machine.id)
+                } label: {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Waiting for \(machine.primary.label)…")
+                    }
+                }
+                .controlSize(.large)
+                .help("Stop waiting. The machine has already been sent the wake packet.")
+            } else {
+                Menu {
+                    Button("Wake and Connect") { waking.wakeAndConnect(machine) }
+                    Button("Wake Only") { wake(machine) }
+                } label: {
+                    Label("Wake", systemImage: "power")
+                } primaryAction: {
+                    // The common case: the reason to wake a machine is to get on it.
+                    waking.wakeAndConnect(machine)
+                }
+                .menuStyle(.button)
+                .controlSize(.large)
+                .disabled(machine.macAddress.isEmpty)
+                .help(machine.macAddress.isEmpty
+                      ? "Add a MAC address to enable Wake-on-LAN"
+                      : "Wake it, wait for port \(machine.probePort), then connect")
             }
-            .controlSize(.large)
-            .disabled(machine.macAddress.isEmpty)
-            .help(machine.macAddress.isEmpty ? "Add a MAC address to enable Wake-on-LAN" : "Send Wake-on-LAN packet")
         }
     }
 

@@ -183,6 +183,10 @@ struct Machine: Codable, Identifiable, Hashable {
     var probePort: Int { port(for: primary) }
 
     /// Directed broadcast for Wake-on-LAN, assuming a /24 network.
+    ///
+    /// Only a fallback: `WakeOnLAN.directedBroadcast(for:)` works the real one out from the
+    /// interface mask, and this is what is left when the machine is not on a subnet this Mac
+    /// is on, where there is nothing better to go on than the commonest mask.
     var broadcastAddress: String? {
         guard let ip = lastIP else { return nil }
         var parts = ip.split(separator: ".").map(String.init)

@@ -93,7 +93,9 @@ struct MachineActions: View {
             Button("Open with \(type.label)") { connect(machine, via: type) }
         }
         Divider()
-        Button("Wake (Wake-on-LAN)") { wake(machine) }
+        Button("Wake and Connect") { WakeSession.shared.wakeAndConnect(machine) }
+            .disabled(machine.macAddress.isEmpty)
+        Button("Wake Only") { wake(machine) }
             .disabled(machine.macAddress.isEmpty)
         Button("Copy IP Address") {
             NSPasteboard.general.clearContents()
