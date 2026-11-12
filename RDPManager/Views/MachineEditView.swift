@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MachineEditView: View {
@@ -27,7 +28,9 @@ struct MachineEditView: View {
                     }
                 }
                 Section("Login") {
-                    TextField("Username", text: $machine.username, prompt: Text("DOMAIN\\user or user"))
+                    TextField("Username", text: $machine.username, prompt: Text("user"))
+                    TextField("Domain", text: $machine.domain,
+                              prompt: Text("optional, for a Windows domain"))
                     SecureField("Password", text: $password)
                     Text("The password stays in this Mac's Keychain. It is never written to the shared machine list.")
                         .font(.caption)
@@ -46,12 +49,33 @@ struct MachineEditView: View {
                     TextField("MAC address", text: $machine.macAddress, prompt: Text("for Wake-on-LAN"))
                     TextField("Web admin URL", text: $machine.webURL, prompt: Text("https://… (defaults to the machine's IP)"))
                 }
-                Section("Sound") {
+                Section("Session") {
                     Picker("Play sound", selection: $machine.audio) {
                         ForEach(AudioMode.allCases) { Text($0.label).tag($0) }
                     }
+                    Picker("Scale", selection: $machine.displayScale) {
+                        ForEach(Machine.allowedScales, id: \.self) { Text("\($0)%").tag($0) }
+                    }
+                    Toggle("Use all displays", isOn: $machine.multipleMonitors)
+                    Toggle("Share the clipboard", isOn: $machine.shareClipboard)
+                    HStack {
+                        TextField("Share a folder", text: $machine.sharedFolder,
+                                  prompt: Text("none"))
+                        Button("Choose…") { chooseSharedFolder() }
+                        if !machine.sharedFolder.isEmpty {
+                            Button("Clear") { machine.sharedFolder = "" }
+                        }
+                    }
                     Text("Applies to RDP. \"On this Mac\" sends the session's audio down "
-                         + "the connection to play here instead.")
+                         + "the connection to play here instead. A shared folder needs "
+                         + "FreeRDP: Windows App cannot be told about one.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section("Monitoring") {
+                    Toggle("Check whether this machine is online", isOn: $machine.monitored)
+                    Text("Turn this off for a machine that is meant to be off much of the "
+                         + "time, so it stops reporting itself offline.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -85,7 +109,7 @@ struct MachineEditView: View {
             }
             .padding()
         }
-        .frame(width: 500, height: 680)
+        .frame(width: 520, height: 720)
         .onAppear {
             tagsText = machine.tagsText
             if !isNew { password = Keychain.password(for: machine.id) ?? "" }
@@ -106,6 +130,17 @@ struct MachineEditView: View {
         }
     }
 
+    private func chooseSharedFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Share"
+        if panel.runModal() == .OK, let url = panel.url {
+            machine.sharedFolder = url.path
+        }
+    }
+
     private func save() {
         var m = machine
         m.name = m.name.trimmingCharacters(in: .whitespaces)
@@ -113,6 +148,8 @@ struct MachineEditView: View {
         if m.hostname.isEmpty { m.hostname = m.name }
         m.username = m.username.trimmingCharacters(in: .whitespaces)
         m.macAddress = m.macAddress.trimmingCharacters(in: .whitespaces)
+        m.domain = m.domain.trimmingCharacters(in: .whitespaces)
+        m.sharedFolder = m.sharedFolder.trimmingCharacters(in: .whitespaces)
         m.tags = tagsText.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }

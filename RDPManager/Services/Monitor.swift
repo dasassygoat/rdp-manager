@@ -55,7 +55,13 @@ final class Monitor: ObservableObject {
         guard !isChecking else { return }
         isChecking = true
         defer { isChecking = false }
-        let machines = store.machines
+        // A machine that is not monitored is not probed and never reports a state, so it
+        // cannot raise an alert for being off when being off is the point.
+        let machines = store.machines.filter(\.monitored)
+        for machine in store.machines where !machine.monitored {
+            if store.statuses[machine.id] != nil { store.statuses[machine.id] = nil }
+            failures[machine.id] = nil
+        }
         await withTaskGroup(of: (UUID, ProbeResult).self) { group in
             for machine in machines {
                 group.addTask { (machine.id, await Self.probe(machine)) }

@@ -246,16 +246,21 @@ enum Launcher {
         var lines = [
             "full address:s:\(machine.connectHost):\(machine.rdpPort)",
             "screen mode id:i:2",
-            "use multimon:i:0",
+            "use multimon:i:\(machine.multipleMonitors ? 1 : 0)",
             "session bpp:i:32",
             "audiomode:i:\(machine.audio.rdpValue)",
-            "redirectclipboard:i:1",
+            "redirectclipboard:i:\(machine.shareClipboard ? 1 : 0)",
+            "desktopscalefactor:i:\(machine.displayScale)",
             "authentication level:i:2",
             "prompt for credentials:i:0",
             "smart sizing:i:1",
             "dynamic resolution:i:1",
         ]
-        if !machine.username.isEmpty { lines.append("username:s:\(machine.username)") }
+        let login = machine.login
+        if !login.username.isEmpty { lines.append("username:s:\(login.username)") }
+        if !login.domain.isEmpty { lines.append("domain:s:\(login.domain)") }
+        // No folder line: Windows App does not take one from a .rdp file it is handed, so
+        // writing one would promise something that silently does not happen.
         return lines.joined(separator: "\r\n")
     }
 
@@ -291,28 +296,28 @@ enum Launcher {
             "/v:\(machine.connectHost):\(machine.rdpPort)",
             "/cert:ignore",
             "/dynamic-resolution",
-            "+clipboard",
+            machine.shareClipboard ? "+clipboard" : "-clipboard",
             "/title:\(machine.name)",
             // Spelled out rather than left to the default, so the two clients agree:
             // unasked, FreeRDP opens no audio channel and Windows App redirects to here.
             "/audio-mode:\(machine.audio.rdpValue)",
         ]
-        if !machine.username.isEmpty {
-            let user = machine.username
-            if let backslash = user.firstIndex(of: "\\") {
-                args.append("/d:\(user[..<backslash])")
-                args.append("/u:\(user[user.index(after: backslash)...])")
-            } else {
-                args.append("/u:\(user)")
-            }
+        if machine.multipleMonitors { args.append("/multimon") }
+        if machine.displayScale != 100 { args.append("/scale:\(machine.displayScale)") }
+        if !machine.sharedFolder.isEmpty {
+            // Named for what it is on the far side. The share only lasts the session.
+            args.append("/drive:Mac,\(machine.sharedFolder)")
         }
+        let login = machine.login
+        if !login.domain.isEmpty { args.append("/d:\(login.domain)") }
+        if !login.username.isEmpty { args.append("/u:\(login.username)") }
         // Only with a username to go with it. FreeRDP asks on stdin for each thing it is
         // missing, in the order username, domain, password, so sending a password while the
         // username is also absent would answer the wrong question with it. A saved password
         // and no username is a half-filled machine either way: FreeRDP asks for both in its
         // own window, as it did before any password was saved.
         if let password = savedPassword(machine.id), !password.isEmpty,
-           !machine.username.isEmpty {
+           !machine.login.username.isEmpty {
             args.append("/from-stdin")
             return FreeRDPInvocation(arguments: args, standardInput: password + "\n")
         }

@@ -117,6 +117,21 @@ struct Machine: Codable, Identifiable, Hashable {
     var primary: ConnectionType = .rdp
     var audio: AudioMode = .remote
     var username = ""
+    /// Windows domain for RDP, kept apart from the username so `DOMAIN\\user` does not have
+    /// to be typed into a field that is otherwise just a name. A username that still carries
+    /// a backslash is split as before, so nothing already saved has to be retyped.
+    var domain = ""
+    /// Whether the poller watches this machine. A laptop that is legitimately off half the
+    /// time otherwise produces a stream of offline alerts that teaches you to ignore them.
+    var monitored = true
+    /// Session options, applied to RDP.
+    var multipleMonitors = false
+    var shareClipboard = true
+    /// A folder on this Mac to make available in the session. FreeRDP only — Windows App
+    /// cannot be told about one through a handed .rdp file.
+    var sharedFolder = ""
+    /// Percentage, as both clients want it: 100, 140 or 180.
+    var displayScale = 100
     var rdpPort = 3389
     var vncPort = 5900
     var sshPort = 22
@@ -145,6 +160,13 @@ struct Machine: Codable, Identifiable, Hashable {
         // by an older copy of the app on another Mac.
         audio = try c.decodeIfPresent(AudioMode.self, forKey: .audio) ?? .remote
         username = try c.decodeIfPresent(String.self, forKey: .username) ?? ""
+        domain = try c.decodeIfPresent(String.self, forKey: .domain) ?? ""
+        monitored = try c.decodeIfPresent(Bool.self, forKey: .monitored) ?? true
+        multipleMonitors = try c.decodeIfPresent(Bool.self, forKey: .multipleMonitors) ?? false
+        shareClipboard = try c.decodeIfPresent(Bool.self, forKey: .shareClipboard) ?? true
+        sharedFolder = try c.decodeIfPresent(String.self, forKey: .sharedFolder) ?? ""
+        let scale = try c.decodeIfPresent(Int.self, forKey: .displayScale) ?? 100
+        displayScale = Self.allowedScales.contains(scale) ? scale : 100
         rdpPort = try c.decodeIfPresent(Int.self, forKey: .rdpPort) ?? 3389
         vncPort = try c.decodeIfPresent(Int.self, forKey: .vncPort) ?? 5900
         sshPort = try c.decodeIfPresent(Int.self, forKey: .sshPort) ?? 22
@@ -153,6 +175,20 @@ struct Machine: Codable, Identifiable, Hashable {
         lastSeen = try c.decodeIfPresent(Date.self, forKey: .lastSeen)
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         modifiedAt = try c.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? createdAt
+    }
+
+    /// What both clients accept. Anything else is treated as 100 rather than passed on,
+    /// since a scale factor they reject fails the whole connection.
+    static let allowedScales = [100, 140, 180]
+
+    /// The domain and username to sign in with: the domain field when it is filled, and
+    /// otherwise whatever is in front of a backslash in the username.
+    var login: (domain: String, username: String) {
+        if !domain.isEmpty { return (domain, username) }
+        if let slash = username.firstIndex(of: "\\") {
+            return (String(username[..<slash]), String(username[username.index(after: slash)...]))
+        }
+        return ("", username)
     }
 
     /// Address used when connecting: the last resolved IP when known, else the hostname.
