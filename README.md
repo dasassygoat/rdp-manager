@@ -62,6 +62,12 @@ address, then by MAC, then by name, so a machine that picked up a new DHCP lease
 recognised instead of added twice. If that machine has no MAC recorded, the sweep fills one
 in and says how many it filled; a MAC already on record is left alone.
 
+A sweep also reports what it noticed about machines you already have: which ones have moved,
+with a button to write the new addresses down; which have started answering on ports other
+than the one they are reached on; and which are in your list at an address inside the swept
+range but did not answer at all. A machine at another site, or one with no address yet, is
+not reported missing — it was not part of the sweep.
+
 Discovery only ever runs when you ask it to, and it refuses a subnet larger than 1,024
 addresses rather than sweeping something enormous.
 
@@ -108,9 +114,18 @@ it does; it only builds if no app can be found.
 `rdpm` starts sessions from the same machine list the app keeps, so an address the app
 recorded seconds ago is the one it uses. It only reads the file.
 
+`ssh` and `wake` are done by the command itself. `connect`, `rdp`, `vnc` and `web` hand the
+machine to the app, which is where the client preference, the Keychain, the shared sign-ins
+and the rules about which client can be given a password live; two implementations of that
+would drift apart. The machine's id is what travels, not its name, so a rename in between
+cannot connect to the wrong machine. The app is started if it is not already running.
+
 ```bash
 rdpm ssh nas                    # connect, in the terminal you are already in
 rdpm ssh nas -- -A -L 8080:localhost:80   # anything after -- goes to ssh
+rdpm connect shop-pc            # connect the way that machine is set up to
+rdpm rdp shop-pc                # or name the method: rdp, vnc, web
+rdpm wake shop-pc               # send a Wake-on-LAN packet
 rdpm ip nas                     # 192.168.1.9
 rdpm list office                # filter by name, hostname, group or tag
 rdpm show nas                   # everything known, including IP history
@@ -190,23 +205,52 @@ another profile name, `SKIP_NOTARIZE=1` to sign without submitting.
   A saved password sends that machine's RDP connections through FreeRDP, which is the
   only client that can be given one — Windows App on macOS cannot, and asks every
   time. Machines with no password saved still go to Windows App when it is installed.
-* **Sound** from an RDP session stays on the machine you connect to, which is the
-  default for every machine. Change it per machine in its editor to play on this Mac
-  instead, or not at all.
-* **Click a machine's name** in the list to connect with its primary method. Right-click
-  for the other methods, Wake-on-LAN, copy IP, edit, and delete.
+* **Shared sign-ins** (Settings → Sign-ins) are for one account used by many machines.
+  Change the password once and every machine using it connects with the new one. The name,
+  username and domain go in the shared list, because they are not secrets and everyone
+  needs to see which account a machine uses; the password stays in each Mac's Keychain.
+* **Session options** per machine: which machine the sound comes out of, scale, whether to
+  use all displays, whether to share the clipboard, and a folder to share into the session
+  (FreeRDP only — Windows App cannot be told about one through a file it is handed).
+* **Click a machine's name** in the list to connect with its primary method, or select it
+  and press Return. ⌘1 to ⌘9 connect the first nine. Right-click for the other methods,
+  Wake, copy IP, edit, and delete.
+* **Quick Connect** with ⌃⌥⌘K from anywhere, or ⌘K when the app is in front: type a few
+  letters of a machine's name and press Return. Turn the global shortcut off in
+  Settings → General if it clashes with something.
+* **Wake** sends the packet, waits for the machine to answer on the port it is reached on,
+  and then connects. The broadcast address comes from the mask of the interface this Mac
+  shares with the machine, so it is right on something other than a /24.
 * **Status** is checked every 30 seconds (Settings → General). A TCP connection to the
   service port counts as online, so Windows machines that block ping still show correctly.
+  A machine is found by its name, then by the address on file, then by wherever its MAC is
+  in the ARP cache — so one on plain DHCP with no DNS record is still found after its lease
+  changes. Turn monitoring off per machine for a laptop that is meant to be off.
 * **IP changes** are logged per machine (Details → IP History) and announced with a
-  notification, as are machines going offline or coming back.
+  notification, as are machines going offline or coming back. One event affecting several
+  machines is one notification: "6 machines in Oak St went offline", not six alerts.
+* **Outages** are kept per machine (Details → Availability): when it went down, for how
+  long, and how much of the last week it was reachable, as seen from this Mac.
+* **Sessions you started** are recorded too, so the detail view can say when you were last
+  on a machine, and the menu bar offers the ones you used recently.
 * **Share the list** from Settings → Storage by pointing the app at a folder on a network
   share or in iCloud Drive. Other Macs running the app pick up changes within seconds.
-  Passwords are never written to that file.
+  Passwords are never written to that file. Edits are merged field by field, so two people
+  changing different things about one machine both keep their change, and a delete is
+  written down so it is not undone by a Mac that still has the machine.
+* **Saved copies** of the list are kept on this Mac each time it changes (Settings →
+  Storage), ten deep, so a bad import or a bad merge can be undone with **Restore…**. An
+  import says what it will add and replace before it does it. If the list cannot be read at
+  all — an unmounted share, a half-written file — the app says so and saves nothing rather
+  than writing an empty list over it.
+* **Reaching further**: a machine can name an SSH jump host, or an RD Gateway for RDP, for
+  one this Mac cannot reach directly.
 * **SSH terminal** is chosen in Settings → Connections. Warp is used when it is installed,
   otherwise `ssh://` goes to macOS, which means Terminal. Pick iTerm, Ghostty or any other
   terminal to override it, **Choose…** an app that is not listed, or pick System default to
   hand `ssh://` back to macOS.
-* **Menu bar** item lists every machine for quick connections while the window is closed.
+* **Menu bar** item lists every machine for quick connections while the window is closed,
+  and carries the number of machines that are offline.
 
 ## Layout
 
@@ -215,7 +259,8 @@ RDPManager/
   App/        entry point, app delegate
   Models/     Machine, connection types, status
   Store/      JSON persistence, file watching, cross-Mac merge
-  Services/   resolver, prober, monitor, Keychain, Wake-on-LAN, launcher, notifications
+  Services/   resolver, prober, monitor, Keychain, Wake-on-LAN, launcher, notifications,
+              connection and uptime logs, quick-connect ranking, global hotkey
   Views/      SwiftUI windows, sheets, settings, menu bar
   CLI/        rdpm, the command-line companion (embedded in the app bundle at build time)
 Tests/        unit tests for the store, SSH launching, executable architectures,
