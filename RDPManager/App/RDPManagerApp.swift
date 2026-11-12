@@ -48,6 +48,12 @@ struct RDPManagerApp: App {
                 }
             }
             UpdateCommands()
+            CommandGroup(after: .toolbar) {
+                // The panel is not a scene, so this needs no `openWindow` and works with
+                // every window closed — see `QuickConnectPanel`.
+                Button("Quick Connect…") { QuickConnectPanel.shared.show(store: store) }
+                    .keyboardShortcut("k", modifiers: .command)
+            }
         }
 
         // The update answer lives in a window of its own rather than a sheet on the main
@@ -57,6 +63,7 @@ struct RDPManagerApp: App {
             UpdateWindowView()
         }
         .windowResizability(.contentSize)
+
 
         Settings {
             SettingsView()
@@ -136,10 +143,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         Monitor.shared.start()
         Updater.shared.checkInBackground()
+        registerQuickConnectHotkey()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func registerQuickConnectHotkey() {
+        Hotkey.shared.register {
+            QuickConnectPanel.shared.show(store: MachineStore.shared)
+        }
     }
 
     /// `rdpm connect` arrives here.

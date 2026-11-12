@@ -41,6 +41,25 @@ struct GeneralSettings: View {
                 Toggle("A machine comes back online", isOn: $notifyBackOnline)
                 Toggle("A machine's IP address changes", isOn: $notifyIPChange)
             }
+            Section("Quick Connect") {
+                Toggle("Open Quick Connect with \(Hotkey.description) from anywhere",
+                       isOn: Binding(
+                        get: { Hotkey.isEnabled },
+                        set: { on in
+                            UserDefaults.standard.set(on, forKey: Hotkey.enabledKey)
+                            if on {
+                                Hotkey.shared.register {
+                                    QuickConnectPanel.shared.show(store: MachineStore.shared)
+                                }
+                            } else {
+                                Hotkey.shared.unregister()
+                            }
+                        }))
+                Text("Type a few letters of a machine's name and press Return. "
+                     + "\u{2318}K does the same when RDP Manager is in front.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Updates") {
                 LabeledContent("Version", value: AppVersion.running?.description ?? "unknown")
                 Toggle("Check for updates automatically", isOn: $checkForUpdates)
