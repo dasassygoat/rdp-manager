@@ -7,6 +7,9 @@ import XCTest
 class StoreTestCase: XCTestCase {
     var directory: URL!
     var storeURL: URL!
+    /// Deliberately not inside `directory`: tests assert on exactly what the store's own
+    /// folder contains, and saved copies belong somewhere else anyway.
+    var backupDirectory: URL!
 
     override func setUpWithError() throws {
         try super.setUpWithError()
@@ -14,15 +17,33 @@ class StoreTestCase: XCTestCase {
             .appendingPathComponent("rdpmanager-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         storeURL = directory.appendingPathComponent("machines.json")
+        backupDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("rdpmanager-backups-\(UUID().uuidString)", isDirectory: true)
     }
 
     override func tearDownWithError() throws {
         try? FileManager.default.removeItem(at: directory)
+        try? FileManager.default.removeItem(at: backupDirectory)
         try super.tearDownWithError()
     }
 
     func makeStore() -> MachineStore {
-        MachineStore(storeURL: storeURL, watchForChanges: false)
+        let store = MachineStore(storeURL: storeURL, watchForChanges: false)
+        // Keep saved copies out of the real Application Support folder.
+        store.backupDirectory = backupDirectory
+        return store
+    }
+
+    func backupFiles() -> [String] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: backupDirectory.path)) ?? []
+        return names.filter { $0.hasSuffix(".json") }.sorted()
+    }
+
+    func readBackup(_ name: String) throws -> [Machine] {
+        try Self.decoder()
+            .decode(StoreDocument.self,
+                    from: Data(contentsOf: backupDirectory.appendingPathComponent(name)))
+            .machines
     }
 
     func makeMachine(

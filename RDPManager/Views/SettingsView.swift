@@ -97,13 +97,34 @@ struct StorageSettings: View {
                 HStack {
                     Button("Export…") { exportList() }
                     Button("Import…") { importList() }
+                    Button("Show Saved Copies") {
+                        try? FileManager.default.createDirectory(
+                            at: store.backupDirectory, withIntermediateDirectories: true)
+                        NSWorkspace.shared.activateFileViewerSelecting([store.backupDirectory])
+                    }
                 }
+                Text("The last \(MachineStore.backupCount) versions of the list are kept on this Mac each time it changes, so a bad import or a bad merge can be undone.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             if let message {
                 Text(message).font(.caption).foregroundStyle(.secondary)
             }
             if let error = store.lastError {
-                Text(error).font(.caption).foregroundStyle(.red)
+                // While the list cannot be read the app is showing an empty one and saving
+                // nothing, which is worth saying louder than a line of grey text.
+                Section {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: store.loadFailed
+                              ? "exclamationmark.triangle.fill" : "exclamationmark.circle")
+                        Text(error).font(.callout)
+                        Spacer()
+                        if store.loadFailed {
+                            Button("Try Again") { store.retryLoad() }
+                        }
+                    }
+                    .foregroundStyle(store.loadFailed ? .red : .secondary)
+                }
             }
         }
         .formStyle(.grouped)

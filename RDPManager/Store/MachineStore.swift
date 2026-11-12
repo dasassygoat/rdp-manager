@@ -12,9 +12,41 @@ final class MachineStore: ObservableObject {
     @Published private(set) var storeURL: URL
     @Published var lastError: String?
 
+    /// Set when the list could not be read: the file is there but unreadable or not a
+    /// machine list, or the folder a chosen location lives in is missing. Saving is refused
+    /// while it is set, because everything in memory is then a placeholder standing in for a
+    /// file that may still be perfectly good.
+    @Published private(set) var loadFailed = false
+
     static var defaultDirectory: URL { StoreLocation.defaultDirectory }
 
     static var defaultStoreURL: URL { StoreLocation.defaultFileURL }
+
+    /// How many saved copies of the list to keep.
+    static let backupCount = 10
+
+    /// Saved copies live beside the app's own data rather than next to the list itself, so
+    /// that several Macs sharing one file do not each drop copies onto the share, and so a
+    /// share that has gone away still leaves something local to restore from.
+    static var defaultBackupDirectory: URL {
+        StoreLocation.defaultDirectory.appendingPathComponent("Backups", isDirectory: true)
+    }
+
+    /// An instance property so tests can point it at a temporary folder.
+    var backupDirectory: URL = MachineStore.defaultBackupDirectory
+
+    /// Whether the user pointed the list somewhere themselves.
+    var isCustomLocation: Bool { storeURL != Self.defaultStoreURL }
+
+    /// A path on a volume that is not mounted. Saving has to refuse here rather than create
+    /// the folders: `/Volumes/Share` with nothing mounted on it is an ordinary empty folder
+    /// as far as writing is concerned, so the list would land in a local copy that shadows
+    /// the mount point, and the next Mac to look would see a different list at the same path.
+    var isOnMissingVolume: Bool {
+        let parts = storeURL.pathComponents
+        guard parts.count > 2, parts[1] == "Volumes" else { return false }
+        return !FileManager.default.fileExists(atPath: "/Volumes/\(parts[2])")
+    }
 
     private static let pathKey = StoreLocation.pathKey
 
@@ -146,26 +178,69 @@ final class MachineStore: ObservableObject {
     // MARK: - Persistence
 
     private func load() {
-        guard let data = try? Data(contentsOf: storeURL) else {
+        let fm = FileManager.default
+
+        guard fm.fileExists(atPath: storeURL.path) else {
+            // No file yet. At the default location that is simply a first run, and writing
+            // one is the right thing. At a folder the user chose it may instead be a share
+            // that has not mounted, where creating the folder would put a local one over the
+            // mount point and quietly split the list in two.
             machines = []
+            lastSavedData = nil
+            if isOnMissingVolume {
+                fail("\(storeURL.pathComponents[2]) is not mounted.")
+            } else {
+                loadFailed = false
+                lastError = nil
+            }
             return
         }
+
+        guard let data = try? Data(contentsOf: storeURL) else {
+            machines = []
+            lastSavedData = nil
+            fail("Could not read \(storeURL.lastPathComponent).")
+            return
+        }
+
         do {
             let doc = try decoder.decode(StoreDocument.self, from: data)
             machines = doc.machines
             sortMachines()
             lastSavedData = data
+            loadFailed = false
             lastError = nil
         } catch {
-            lastError = "Could not read \(storeURL.lastPathComponent): \(error.localizedDescription)"
+            // Readable, but not a machine list: half-written by another Mac, or hand-edited
+            // into something that will not parse. Showing an empty list is survivable.
+            // Saving it over the real one is not.
+            machines = []
+            lastSavedData = nil
+            fail("Could not read \(storeURL.lastPathComponent): \(error.localizedDescription).")
         }
     }
 
+    private func fail(_ reason: String) {
+        loadFailed = true
+        lastError = reason + " Nothing will be saved until it can be read."
+    }
+
+    /// Tries the file again, for when a share finally mounts. The reload timer calls this
+    /// while the load is failing, and Settings offers it as a button.
+    func retryLoad() {
+        load()
+    }
+
     private func save() {
+        // Never write over a list that could not be read. This is the whole reason
+        // `loadFailed` exists: an unmounted share or a half-written file would otherwise be
+        // replaced by the empty list being shown in its place.
+        guard !loadFailed else { return }
         do {
+            let data = try encoder.encode(StoreDocument(version: 1, machines: machines))
             try FileManager.default.createDirectory(
                 at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let data = try encoder.encode(StoreDocument(version: 1, machines: machines))
+            backUp(before: data)
             try data.write(to: storeURL, options: .atomic)
             lastSavedData = data
             lastError = nil
@@ -174,9 +249,57 @@ final class MachineStore: ObservableObject {
         }
     }
 
+    /// Keeps the copy that is about to be replaced, so a bad merge or a mistaken import can
+    /// be undone. Only when the file is actually changing, and never at the cost of the save
+    /// itself: a backup that cannot be written is not a reason to lose the edit.
+    private func backUp(before newData: Data) {
+        guard let existing = try? Data(contentsOf: storeURL), existing != newData else { return }
+        do {
+            try FileManager.default.createDirectory(
+                at: backupDirectory, withIntermediateDirectories: true)
+            try existing.write(to: nextBackupURL(), options: .atomic)
+            pruneBackups()
+        } catch {}
+    }
+
+    /// A name no existing backup has. Two saves inside the same millisecond are easy to
+    /// produce — an import is one — and the later one must not erase the earlier.
+    private func nextBackupURL() -> URL {
+        let stamp = Self.backupStamp.string(from: Date())
+        var url = backupDirectory.appendingPathComponent("machines-\(stamp).json")
+        var suffix = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = backupDirectory.appendingPathComponent("machines-\(stamp)-\(suffix).json")
+            suffix += 1
+        }
+        return url
+    }
+
+    private func pruneBackups() {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: backupDirectory.path)
+        else { return }
+        // The stamp sorts the same way lexically as it does in time.
+        let backups = names.filter { $0.hasPrefix("machines-") && $0.hasSuffix(".json") }.sorted()
+        guard backups.count > Self.backupCount else { return }
+        for name in backups.prefix(backups.count - Self.backupCount) {
+            try? FileManager.default.removeItem(at: backupDirectory.appendingPathComponent(name))
+        }
+    }
+
+    private static let backupStamp: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd-HHmmss-SSS"
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
     /// Reloads when another process changed the file. Called by the watcher and a slow timer
     /// (network shares and iCloud do not always deliver file events).
     func reloadFromDisk() {
+        // While the list cannot be read there is nothing to merge into — try the whole load
+        // again instead, which is how a share that mounts late recovers on its own.
+        if loadFailed { load(); return }
         guard let data = try? Data(contentsOf: storeURL), data != lastSavedData else { return }
         guard let doc = try? decoder.decode(StoreDocument.self, from: data) else { return }
         merge(doc.machines)
