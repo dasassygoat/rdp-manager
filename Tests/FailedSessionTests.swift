@@ -52,6 +52,42 @@ final class FailedSessionTests: XCTestCase {
         XCTAssertTrue(reason?.contains("exited with code 7") == true, reason ?? "nil")
     }
 
+    func testAPromptFreeRDPCouldNotShowIsNotMistakenForTheUserCancelling() {
+        let log = "[ERROR][com.freerdp.core] - [nla_client_setup_identity]: ERRCONNECT_CONNECT_CANCELLED [0x0002000B]"
+        let reason = FreeRDPDiagnostics.explanation(status: 145, lifetime: 1, log: log, host: host)
+        XCTAssertTrue(reason?.contains("could not ask") == true, reason ?? "nil")
+    }
+
+    func testACancelAfterAWhileIsTheUsers() {
+        let log = "ERRCONNECT_CONNECT_CANCELLED"
+        XCTAssertNil(FreeRDPDiagnostics.explanation(status: 145, lifetime: 40, log: log, host: host))
+    }
+
+    func testTypedDomainAndUserAreSplit() {
+        let key = UUID()
+        let typed = TypedCredentials(username: "SHOP\\bryan", password: "x", remember: false)
+        let login = typed.login(passwordKey: key)
+        XCTAssertEqual(login.domain, "SHOP")
+        XCTAssertEqual(login.username, "bryan")
+        XCTAssertEqual(TypedCredentials(username: "bryan@shop.local", password: "x", remember: false)
+                        .login(passwordKey: key).username, "bryan@shop.local")
+    }
+
+    @MainActor
+    func testATypedPasswordGoesDownStandardInput() {
+        var m = Machine()
+        m.name = "goat7"
+        m.hostname = "192.168.1.120"
+        let login = Launcher.Login(username: "administrator", domain: "", passwordKey: m.id)
+        let invocation = Launcher.freeRDPInvocation(for: m, login: login, password: "typed")
+        XCTAssertTrue(invocation.arguments.contains("/from-stdin"))
+        XCTAssertEqual(invocation.standardInput, "typed\n")
+        XCTAssertFalse(invocation.arguments.contains { $0.contains("typed") })
+        let none = Launcher.freeRDPInvocation(for: m, login: login, password: nil)
+        XCTAssertFalse(none.arguments.contains("/from-stdin"))
+        XCTAssertNil(none.standardInput)
+    }
+
     func testNoProbeThroughAGatewayOrJumpHost() {
         var m = Machine()
         m.name = "remote"

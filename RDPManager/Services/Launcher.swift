@@ -81,12 +81,15 @@ enum LaunchError: LocalizedError {
     case noClient(String)
     case badAddress
     case failed(String)
+    /// The person closed the sign-in prompt. Nothing to report.
+    case cancelled
 
     var errorDescription: String? {
         switch self {
         case .noClient(let s): return s
         case .badAddress: return "The machine's address could not be turned into a URL."
         case .failed(let s): return s
+        case .cancelled: return "Cancelled."
         }
     }
 }
@@ -319,8 +322,16 @@ enum Launcher {
         var standardInput: String?
     }
 
-    /// Built apart from running it so the tests can check what gets passed.
+    /// Built apart from running it so the tests can check what gets passed. Uses the
+    /// machine's own login and whatever password is saved for it.
     static func freeRDPInvocation(for machine: Machine) -> FreeRDPInvocation {
+        let login = Self.login(for: machine)
+        return freeRDPInvocation(for: machine, login: login, password: savedPassword(login.passwordKey))
+    }
+
+    /// The same, for a login and password decided by the caller: what the person just typed
+    /// into the sign-in prompt when nothing was saved.
+    static func freeRDPInvocation(for machine: Machine, login: Login, password: String?) -> FreeRDPInvocation {
         var args = [
             "/v:\(machine.connectHost):\(machine.rdpPort)",
             "/cert:ignore",
@@ -337,7 +348,6 @@ enum Launcher {
             // process arguments, which is what /from-stdin exists to avoid. FreeRDP asks
             // for the gateway's password itself when it needs one.
             var gateway = "g:\(machine.gateway)"
-            let login = Self.login(for: machine)
             if !login.username.isEmpty { gateway += ",u:\(login.username)" }
             if !login.domain.isEmpty { gateway += ",d:\(login.domain)" }
             args.append("/gateway:\(gateway)")
@@ -347,16 +357,12 @@ enum Launcher {
             // Named for what it is on the far side. The share only lasts the session.
             args.append("/drive:Mac,\(machine.sharedFolder)")
         }
-        let login = Self.login(for: machine)
         if !login.domain.isEmpty { args.append("/d:\(login.domain)") }
         if !login.username.isEmpty { args.append("/u:\(login.username)") }
-        // Only with a username to go with it. FreeRDP asks on stdin for each thing it is
-        // missing, in the order username, domain, password, so sending a password while the
-        // username is also absent would answer the wrong question with it. A saved password
-        // and no username is a half-filled machine either way: FreeRDP asks for both in its
-        // own window, as it did before any password was saved.
-        if let password = savedPassword(login.passwordKey), !password.isEmpty,
-           !login.username.isEmpty {
+        // Only with a username to go with it: the SDL client reads just the password from
+        // stdin, so a password without a username would leave it asking for the username in
+        // a prompt it cannot show (see rdpViaFreeRDP).
+        if let password, !password.isEmpty, !login.username.isEmpty {
             args.append("/from-stdin")
             return FreeRDPInvocation(arguments: args, standardInput: password + "\n")
         }
@@ -370,7 +376,31 @@ enum Launcher {
     }
 
     private static func rdpViaFreeRDP(_ machine: Machine, executable: URL) throws {
-        let invocation = freeRDPInvocation(for: machine)
+        // FreeRDP cannot ask for a password itself when started from here: its prompt needs
+        // a terminal, and without one it gives up at once with ERRCONNECT_CONNECT_CANCELLED,
+        // which looked like nothing happening at all. So the asking is done in this app.
+        var login = Self.login(for: machine)
+        var password = savedPassword(login.passwordKey) ?? ""
+        if password.isEmpty {
+            guard let typed = CredentialPrompt.ask(for: machine, login: login) else {
+                throw LaunchError.cancelled
+            }
+            login = typed.login(passwordKey: login.passwordKey)
+            password = typed.password
+            if typed.remember {
+                Keychain.setPassword(password, for: login.passwordKey)
+                // The username is part of the machine record, so a different one typed here
+                // is kept there too — unless the machine signs in with a shared set, whose
+                // name is edited in Settings.
+                if machine.credentialID == nil, typed.username != machine.username {
+                    var updated = machine
+                    updated.username = typed.username
+                    updated.domain = ""
+                    MachineStore.shared.update(updated)
+                }
+            }
+        }
+        let invocation = freeRDPInvocation(for: machine, login: login, password: password)
         let process = Process()
         process.executableURL = executable
         process.arguments = invocation.arguments
@@ -621,6 +651,12 @@ enum FreeRDPDiagnostics {
                                         host: String) -> String? {
         guard status != 0 else { return nil }
         let text = log.lowercased()
+        // FreeRDP's own password prompt needs a terminal; without one it cancels itself
+        // within a second or two. The app asks for the password first so this should not
+        // happen, but if it does it must not pass for the person cancelling.
+        if text.contains("connect_cancelled") && lifetime < 5 {
+            return "FreeRDP needed a password for \(host) and could not ask for one. Save a password for this machine with Edit, or enter it when the app asks."
+        }
         // A session the user or the server ended on purpose.
         if text.contains("connect_cancelled") || text.contains("logoff_by_user")
             || text.contains("disconnect_by_user") || text.contains("disconnected by user")
@@ -674,6 +710,62 @@ enum FreeRDPDiagnostics {
         if !tail.isEmpty { message += "\n\nFreeRDP output:\n" + tail }
         if let logFile { message += "\n\nFull log: \(logFile.path)" }
         AppAlerts.show("Could not connect to \(machine.name)", message)
+    }
+}
+
+/// What the person typed into the sign-in prompt.
+struct TypedCredentials: Equatable {
+    var username: String
+    var password: String
+    var remember: Bool
+
+    /// "DOMAIN\\user" becomes a domain and a user; "user@domain" is left for FreeRDP to split.
+    nonisolated func login(passwordKey: UUID) -> Launcher.Login {
+        if let slash = username.firstIndex(of: "\\") {
+            return Launcher.Login(username: String(username[username.index(after: slash)...]),
+                                  domain: String(username[..<slash]), passwordKey: passwordKey)
+        }
+        return Launcher.Login(username: username, domain: "", passwordKey: passwordKey)
+    }
+}
+
+/// The sign-in sheet shown when a machine has no saved password.
+@MainActor
+enum CredentialPrompt {
+    static func ask(for machine: Machine, login: Launcher.Login) -> TypedCredentials? {
+        let alert = NSAlert()
+        alert.messageText = "Sign in to \(machine.name)"
+        alert.informativeText = "No password is saved for this machine. Enter the account to use for the Remote Desktop session."
+        alert.addButton(withTitle: "Connect")
+        alert.addButton(withTitle: "Cancel")
+
+        let prefilled = login.domain.isEmpty ? login.username : "\(login.domain)\\\(login.username)"
+        let userField = NSTextField(string: prefilled)
+        userField.placeholderString = "Username, or DOMAIN\\user"
+        let passwordField = NSSecureTextField(string: "")
+        passwordField.placeholderString = "Password"
+        let remember = NSButton(checkboxWithTitle: "Remember in this Mac's Keychain", target: nil, action: nil)
+        remember.state = .on
+
+        let stack = NSStackView(views: [userField, passwordField, remember])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        for field in [userField, passwordField] {
+            field.translatesAutoresizingMaskIntoConstraints = false
+            field.widthAnchor.constraint(equalToConstant: 280).isActive = true
+        }
+        stack.frame = NSRect(x: 0, y: 0, width: 280, height: 86)
+        alert.accessoryView = stack
+        alert.window.initialFirstResponder = prefilled.isEmpty ? userField : passwordField
+
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let username = userField.stringValue.trimmingCharacters(in: .whitespaces)
+        let password = passwordField.stringValue
+        guard !username.isEmpty, !password.isEmpty else { return nil }
+        return TypedCredentials(username: username, password: password, remember: remember.state == .on)
     }
 }
 
@@ -732,6 +824,8 @@ func connect(_ machine: Machine, via type: ConnectionType) {
             try Launcher.connect(machine, via: type)
             // Only once it started. A session that could not launch is not one you were on.
             ConnectionLog.shared.record(machine, via: type)
+        } catch LaunchError.cancelled {
+            return
         } catch {
             AppAlerts.show("Could not connect to \(machine.name)", error.localizedDescription)
         }
