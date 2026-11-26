@@ -38,6 +38,15 @@ final class FailedSessionTests: XCTestCase {
         XCTAssertNil(FreeRDPDiagnostics.explanation(status: 1, lifetime: 3600, log: "[INFO] closing", host: host))
     }
 
+    func testAShortSessionWithOnlyAWarningIsStillReported() {
+        let log = "[WARN][com.freerdp.core] - [rdp_recv_callback]: connection closed by peer"
+        XCTAssertNotNil(FreeRDPDiagnostics.explanation(status: 1, lifetime: 45, log: log, host: host))
+    }
+
+    func testAnEarlyQuietExitIsReportedEvenAfterTwentySeconds() {
+        XCTAssertNotNil(FreeRDPDiagnostics.explanation(status: 1, lifetime: 30, log: "", host: host))
+    }
+
     func testAnUnexplainedEarlyExitStillGetsReported() {
         let reason = FreeRDPDiagnostics.explanation(status: 7, lifetime: 1, log: "", host: host)
         XCTAssertTrue(reason?.contains("exited with code 7") == true, reason ?? "nil")

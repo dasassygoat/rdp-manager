@@ -398,14 +398,30 @@ enum Launcher {
             collector.append(handle.availableData)
         }
         let started = Date()
+        let logFile = sessionLogURL(for: machine)
         process.terminationHandler = { finished in
             output.fileHandleForReading.readabilityHandler = nil
             collector.append(output.fileHandleForReading.readDataToEndOfFile())
             let log = collector.text
             let status = finished.terminationStatus
             let lifetime = Date().timeIntervalSince(started)
+            // The whole run, kept on disk: when a session ends in a way the rules below
+            // decide not to mention, this file is still there to say what happened.
+            let record = """
+            RDP Manager FreeRDP session log
+            machine:   \(machine.name)
+            started:   \(started.formatted(date: .numeric, time: .standard))
+            command:   \(executable.path) \(invocation.arguments.joined(separator: " "))
+            exit:      status \(status) after \(Int(lifetime.rounded())) s
+
+            \(log)
+            """
+            try? FileManager.default.createDirectory(
+                at: logFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? record.write(to: logFile, atomically: true, encoding: .utf8)
             Task { @MainActor in
-                FreeRDPDiagnostics.report(machine: machine, status: status, lifetime: lifetime, log: log)
+                FreeRDPDiagnostics.report(machine: machine, status: status, lifetime: lifetime,
+                                          log: log, logFile: logFile)
             }
         }
 
@@ -422,6 +438,13 @@ enum Launcher {
             try? input.fileHandleForWriting.write(contentsOf: Data(credentials.utf8))
             try? input.fileHandleForWriting.close()
         }
+    }
+
+    /// One file per machine, rewritten on every FreeRDP run.
+    static func sessionLogURL(for machine: Machine) -> URL {
+        StoreLocation.defaultDirectory
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent("freerdp-" + safeFileName(machine.name) + ".log")
     }
 
     /// Where the bundled FreeRDP's OpenSSL should look for its provider modules.
@@ -605,10 +628,11 @@ enum FreeRDPDiagnostics {
             return nil
         }
         let failedToStart = text.contains("errconnect") || text.contains("authentication_failed")
-            || text.contains("[error]")
-        // A session that ran for a while and then ended without an error line is a normal
-        // end (the client's exit code is not zero for those either).
-        guard failedToStart || lifetime < 20 else { return nil }
+            || text.contains("[error]") || text.contains("[warn]")
+        // A session that ran for a while and then ended without a complaint is a normal end
+        // (the client's exit code is not zero for those either). Anything shorter than a
+        // minute that nobody ended on purpose is a session that did not happen.
+        guard failedToStart || lifetime < 60 else { return nil }
 
         if text.contains("logon_failure") || text.contains("authentication_failed")
             || text.contains("authentication failure") || text.contains("wrong_password")
@@ -637,7 +661,8 @@ enum FreeRDPDiagnostics {
         return "FreeRDP exited with code \(status) while connecting to \(host)."
     }
 
-    static func report(machine: Machine, status: Int32, lifetime: TimeInterval, log: String) {
+    static func report(machine: Machine, status: Int32, lifetime: TimeInterval, log: String,
+                       logFile: URL? = nil) {
         let host = "\(machine.connectHost):\(machine.rdpPort)"
         guard let reason = explanation(status: status, lifetime: lifetime, log: log, host: host) else { return }
         let tail = log.split(separator: "\n")
@@ -645,8 +670,10 @@ enum FreeRDPDiagnostics {
             .filter { !$0.isEmpty && !$0.lowercased().hasPrefix("password") }
             .suffix(6)
             .joined(separator: "\n")
-        AppAlerts.show("Could not connect to \(machine.name)",
-                       reason + (tail.isEmpty ? "" : "\n\nFreeRDP output:\n" + tail))
+        var message = reason
+        if !tail.isEmpty { message += "\n\nFreeRDP output:\n" + tail }
+        if let logFile { message += "\n\nFull log: \(logFile.path)" }
+        AppAlerts.show("Could not connect to \(machine.name)", message)
     }
 }
 
