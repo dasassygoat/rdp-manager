@@ -395,16 +395,17 @@ final class MachineStore: ObservableObject {
     }
 
     /// A name no existing backup has. Two saves inside the same millisecond are easy to
-    /// produce — an import is one — and the later one must not erase the earlier.
+    /// produce — an import is one — and the later one must not erase the earlier. The
+    /// stamp is nudged forward rather than suffixed: "machines-<stamp>-2.json" sorts before
+    /// "machines-<stamp>.json", which made the later copy look like the older one.
     private func nextBackupURL() -> URL {
-        let stamp = Self.backupStamp.string(from: Date())
-        var url = backupDirectory.appendingPathComponent("machines-\(stamp).json")
-        var suffix = 2
-        while FileManager.default.fileExists(atPath: url.path) {
-            url = backupDirectory.appendingPathComponent("machines-\(stamp)-\(suffix).json")
-            suffix += 1
+        var moment = Date()
+        while true {
+            let stamp = Self.backupStamp.string(from: moment)
+            let url = backupDirectory.appendingPathComponent("machines-\(stamp).json")
+            if !FileManager.default.fileExists(atPath: url.path) { return url }
+            moment += 0.001
         }
-        return url
     }
 
     private func pruneBackups() {
