@@ -386,6 +386,29 @@ enum Launcher {
         let input = invocation.standardInput.map { _ in Pipe() }
         if let input { process.standardInput = input }
 
+        // Everything FreeRDP prints is kept, because when a session fails to start the
+        // client's own error dialog closes with the process, and that log is the only place
+        // the reason survives. It is read on a background handler so a chatty session can
+        // never fill the pipe and stall.
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        let collector = OutputCollector()
+        output.fileHandleForReading.readabilityHandler = { handle in
+            collector.append(handle.availableData)
+        }
+        let started = Date()
+        process.terminationHandler = { finished in
+            output.fileHandleForReading.readabilityHandler = nil
+            collector.append(output.fileHandleForReading.readDataToEndOfFile())
+            let log = collector.text
+            let status = finished.terminationStatus
+            let lifetime = Date().timeIntervalSince(started)
+            Task { @MainActor in
+                FreeRDPDiagnostics.report(machine: machine, status: status, lifetime: lifetime, log: log)
+            }
+        }
+
         do {
             try process.run()
         } catch {
@@ -547,6 +570,86 @@ enum Launcher {
     }
 }
 
+/// Thread-safe accumulator for a child process's output.
+final class OutputCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
+    }
+
+    var text: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
+/// Turns how FreeRDP ended into something a person can act on, or into nothing when the
+/// session simply ended.
+@MainActor
+enum FreeRDPDiagnostics {
+    /// Whether an exit is worth an alert, and what to say. Pure so the tests can feed it
+    /// real FreeRDP logs.
+    nonisolated static func explanation(status: Int32, lifetime: TimeInterval, log: String,
+                                        host: String) -> String? {
+        guard status != 0 else { return nil }
+        let text = log.lowercased()
+        // A session the user or the server ended on purpose.
+        if text.contains("connect_cancelled") || text.contains("logoff_by_user")
+            || text.contains("disconnect_by_user") || text.contains("disconnected by user")
+            || text.contains("rpc_initiated_disconnect") {
+            return nil
+        }
+        let failedToStart = text.contains("errconnect") || text.contains("authentication_failed")
+            || text.contains("[error]")
+        // A session that ran for a while and then ended without an error line is a normal
+        // end (the client's exit code is not zero for those either).
+        guard failedToStart || lifetime < 20 else { return nil }
+
+        if text.contains("logon_failure") || text.contains("authentication_failed")
+            || text.contains("authentication failure") || text.contains("wrong_password")
+            || text.contains("no_credentials") {
+            return "The username or password was rejected. Check them with Edit. For a domain-joined PC use DOMAIN\\user; for a local account on a Mac running Pro RDP use the macOS short name."
+        }
+        if text.contains("account_locked") { return "The account is locked out on the target machine." }
+        if text.contains("password_expired") || text.contains("password_must_change") {
+            return "The password has expired and must be changed on the target machine first."
+        }
+        if text.contains("account_disabled") { return "The account is disabled on the target machine." }
+        if text.contains("dns_name_not_found") || text.contains("dns_error") || text.contains("name not found") {
+            return "The hostname could not be resolved."
+        }
+        if text.contains("connection refused") || text.contains("transport_failed")
+            || text.contains("connect_failed") || text.contains("timed out") || text.contains("unreachable")
+            || text.contains("connection reset") {
+            return "Nothing answered on \(host). Check that the machine is on, Remote Desktop is enabled, and the firewall allows that port."
+        }
+        if text.contains("security_nego") || text.contains("credssp") || text.contains("nla") {
+            return "Security negotiation failed with \(host). The target may require Network Level Authentication with a domain account, or a different security level."
+        }
+        if text.contains("tls") || text.contains("ssl") {
+            return "The TLS handshake with \(host) failed."
+        }
+        return "FreeRDP exited with code \(status) while connecting to \(host)."
+    }
+
+    static func report(machine: Machine, status: Int32, lifetime: TimeInterval, log: String) {
+        let host = "\(machine.connectHost):\(machine.rdpPort)"
+        guard let reason = explanation(status: status, lifetime: lifetime, log: log, host: host) else { return }
+        let tail = log.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.lowercased().hasPrefix("password") }
+            .suffix(6)
+            .joined(separator: "\n")
+        AppAlerts.show("Could not connect to \(machine.name)",
+                       reason + (tail.isEmpty ? "" : "\n\nFreeRDP output:\n" + tail))
+    }
+}
+
 @MainActor
 enum AppAlerts {
     static func show(_ title: String, _ message: String) {
@@ -557,16 +660,54 @@ enum AppAlerts {
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
+
+    /// Returns true when the user picks `confirmTitle`.
+    static func confirm(_ title: String, _ message: String, confirmTitle: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: confirmTitle)
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
+    }
 }
 
+/// Whether to try the service port before handing off. Not when the session goes through
+/// a gateway or jump host, since the machine then only has to be reachable from there.
+nonisolated func shouldProbeBeforeConnecting(_ machine: Machine, via type: ConnectionType) -> Bool {
+    switch type {
+    case .web: return false
+    case .rdp: return machine.gateway.isEmpty
+    case .ssh: return machine.jumpHost.isEmpty
+    case .vnc: return true
+    }
+}
+
+/// Connect from the UI. The service port is tried first, so a machine that is off or has
+/// the service disabled is reported here instead of by a client that fails out of sight.
 @MainActor
 func connect(_ machine: Machine, via type: ConnectionType) {
-    do {
-        try Launcher.connect(machine, via: type)
-        // Only once it started. A session that could not launch is not one you were on.
-        ConnectionLog.shared.record(machine, via: type)
-    } catch {
-        AppAlerts.show("Could not connect to \(machine.name)", error.localizedDescription)
+    Task { @MainActor in
+        if shouldProbeBeforeConnecting(machine, via: type) {
+            let port = machine.port(for: type)
+            let reachable = await Prober.tcpOpen(host: machine.connectHost, port: port, timeout: 2)
+            if !reachable {
+                let proceed = AppAlerts.confirm(
+                    "\(machine.name) is not answering on port \(port)",
+                    "No response from \(machine.connectHost) on port \(port) (\(type.label)). The machine may be off, asleep, blocking the port, or the service may not be enabled.\n\nConnect anyway?",
+                    confirmTitle: "Connect Anyway")
+                if !proceed { return }
+            }
+        }
+        do {
+            try Launcher.connect(machine, via: type)
+            // Only once it started. A session that could not launch is not one you were on.
+            ConnectionLog.shared.record(machine, via: type)
+        } catch {
+            AppAlerts.show("Could not connect to \(machine.name)", error.localizedDescription)
+        }
     }
 }
 
